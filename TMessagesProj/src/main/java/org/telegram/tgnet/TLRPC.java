@@ -29280,13 +29280,14 @@ public class TLRPC {
 		}
 	}
 
+	// Info about photo (full or thumb)
 	public static abstract class PhotoSize extends TLObject {
 		public String type;
 		public FileLocation location;
 		public int w;
 		public int h;
 		public int size;
-		public byte[] bytes;
+		public byte[] bytes; // Only use for LQIP thumb or cached photo
 
 		public static PhotoSize TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
 			PhotoSize result = null;
@@ -29314,6 +29315,7 @@ public class TLRPC {
 		}
 	}
 
+	// LQIP thumb photo
     public static class TL_photoStrippedSize extends PhotoSize {
         public static int constructor = 0xe0b0bc2e;
 

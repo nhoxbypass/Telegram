@@ -108,6 +108,7 @@ public class Bitmaps {
         }
     };
 
+    // Fixed header for decode LQIP thumb
     protected static byte[] header = new byte[]{
             (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, (byte) 0x00, (byte) 0x10, (byte) 0x4A,
             (byte) 0x46, (byte) 0x49, (byte) 0x46, (byte) 0x00, (byte) 0x01, (byte) 0x01, (byte) 0x00,

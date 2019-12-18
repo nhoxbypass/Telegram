@@ -106,6 +106,7 @@ public class ImageLoader {
 
     public static final String AUTOPLAY_FILTER = "g";
 
+    // ? ? ?
     private class ThumbGenerateInfo {
         private TLRPC.Document parentDocument;
         private String filter;
@@ -622,6 +623,7 @@ public class ImageLoader {
         }
     }
 
+    // Generate thumb for what ???
     private class ThumbGenerateTask implements Runnable {
 
         private File originalPath;
@@ -759,12 +761,13 @@ public class ImageLoader {
                 System.arraycopy(photoSize.bytes, 3, data, Bitmaps.header.length, photoSize.bytes.length - 3);
                 System.arraycopy(Bitmaps.footer, 0, data, Bitmaps.header.length + photoSize.bytes.length - 3, Bitmaps.footer.length);
 
+                // Width & Height
                 data[164] = photoSize.bytes[1];
                 data[166] = photoSize.bytes[2];
 
                 Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, len);
                 if (bitmap != null && !TextUtils.isEmpty(cacheImage.filter) && cacheImage.filter.contains("b")) {
-                    Utilities.blurBitmap(bitmap, 3, 1, bitmap.getWidth(), bitmap.getHeight(), bitmap.getRowBytes());
+                    Utilities.blurBitmap(bitmap, 3, 1, bitmap.getWidth(), bitmap.getHeight(), bitmap.getRowBytes()); // Native blur
                 }
                 onPostExecute(bitmap != null ? new BitmapDrawable(bitmap) : null);
             } else if (cacheImage.lottieFile) {
