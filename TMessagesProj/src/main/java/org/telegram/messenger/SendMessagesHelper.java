@@ -34,6 +34,8 @@ import android.util.SparseArray;
 import android.webkit.MimeTypeMap;
 import android.widget.Toast;
 
+import com.google.android.exoplayer2.util.Log;
+
 import org.telegram.messenger.audioinfo.AudioInfo;
 import org.telegram.messenger.support.SparseLongArray;
 import org.telegram.tgnet.ConnectionsManager;
@@ -922,6 +924,8 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     public boolean retrySendMessage(MessageObject messageObject, boolean unsent) {
+        Log.d("Genius", "retrySendMessage(): MsgID=" + messageObject.getId());
+
         if (messageObject.getId() >= 0) {
             if (messageObject.isEditing()) {
                 editMessageMedia(messageObject, null, null, null, null, null, true, messageObject);
@@ -1503,7 +1507,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                                         sentMessages.add(message);
                                         updateMediaPaths(msgObj1, message, message.id, null, true);
                                         int existFlags = msgObj1.getMediaExistanceFlags();
-                                        newMsgObj1.id = message.id;
+                                        newMsgObj1.id = message.id; // Update msg ID when receive response from server
                                         sentCount++;
                                         getMessagesStorage().getStorageQueue().postRunnable(() -> {
                                             getMessagesStorage().updateMessageStateAndId(newMsgObj1.random_id, oldId, newMsgObj1.id, 0, false, to_id.channel_id, scheduleDate != 0 ? 1 : 0);
@@ -2281,6 +2285,8 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
     }
 
     private void sendMessage(String message, String caption, TLRPC.MessageMedia location, TLRPC.TL_photo photo, VideoEditedInfo videoEditedInfo, TLRPC.User user, TLRPC.TL_document document, TLRPC.TL_game game, TLRPC.TL_messageMediaPoll poll, long peer, String path, MessageObject reply_to_msg, TLRPC.WebPage webPage, boolean searchLinks, MessageObject retryMessageObject, ArrayList<TLRPC.MessageEntity> entities, TLRPC.ReplyMarkup replyMarkup, HashMap<String, String> params, boolean notify, int scheduleDate, int ttl, Object parentObject) {
+        Log.d("Genius", "sendMessage(): MsgText=" + message);
+
         if (user != null && user.phone == null) {
             return;
         }
@@ -2323,6 +2329,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
 
         try {
             if (retryMessageObject != null) {
+                Log.d("Genius", "sendMessage(): Build msg from RetryMSG");
                 newMsg = retryMessageObject.messageOwner;
                 if (retryMessageObject.isForwarded()) {
                     type = 4;
@@ -2374,6 +2381,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 }
             } else {
                 if (message != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2401,6 +2409,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                     }
                     newMsg.message = message;
                 } else if (poll != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg POLL");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2409,6 +2418,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                     newMsg.media = poll;
                     type = 10;
                 } else if (location != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg LOCATION");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2421,6 +2431,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                         type = 1;
                     }
                 } else if (photo != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg PHOTO");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2448,6 +2459,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                         newMsg.attachPath = FileLoader.getPathToAttach(location1, true).toString();
                     }
                 } else if (game != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg GAME");
                     newMsg = new TLRPC.TL_message();
                     newMsg.media = new TLRPC.TL_messageMediaGame();
                     newMsg.media.game = game;
@@ -2455,6 +2467,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                         type = 9;
                     }
                 } else if (user != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg CONTACT");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2482,6 +2495,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                         type = 6;
                     }
                 } else if (document != null) {
+                    Log.d("Genius", "sendMessage(): Build new msg DOCUMENT");
                     if (encryptedChat != null) {
                         newMsg = new TLRPC.TL_message_secret();
                     } else {
@@ -2557,7 +2571,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                     newMsg.attachPath = "";
                 }
                 newMsg.local_id = newMsg.id = getUserConfig().getNewMessageId();
+                Log.d("Genius", "sendMessage(). Generated new msgID=" + newMsg.id);
+
                 newMsg.out = true;
+
+                // FromID can be ChannelID or current user ID
                 if (isChannel && sendToPeer != null) {
                     newMsg.from_id = -sendToPeer.channel_id;
                 } else {
@@ -2566,9 +2584,12 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 }
                 getUserConfig().saveConfig(false);
             }
+
             if (newMsg.random_id == 0) {
                 newMsg.random_id = getNextRandomId();
             }
+            Log.d("Genius", "sendMessage(). Generated new random ID=" + newMsg.random_id);
+
             if (params != null && params.containsKey("bot")) {
                 if (encryptedChat != null) {
                     newMsg.via_bot_name = params.get("bot_name");
@@ -2613,14 +2634,18 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 } else {
                     newMsg.flags |= TLRPC.MESSAGE_FLAG_REPLY;
                 }
-                newMsg.reply_to_msg_id = reply_to_msg.getId();
+                newMsg.reply_to_msg_id = reply_to_msg.getId(); // They use `getId()` to specify reply msg --> May be it will be unique ID ???
             }
             if (replyMarkup != null && encryptedChat == null) {
                 newMsg.flags |= TLRPC.MESSAGE_FLAG_HAS_MARKUP;
                 newMsg.reply_markup = replyMarkup;
             }
+
             if (lower_id != 0) {
                 newMsg.to_id = getMessagesController().getPeer(lower_id);
+
+                Log.d("Genius", "sendMessage(). Fetch receiver info: lowerID=" + lower_id + ", peer=" + newMsg.to_id.toString());
+
                 if (lower_id > 0) {
                     TLRPC.User sendToUser = getMessagesController().getUser(lower_id);
                     if (sendToUser == null) {
@@ -2638,6 +2663,10 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 } else {
                     newMsg.to_id.user_id = encryptedChat.participant_id;
                 }
+
+                Log.d("Genius", "sendMessage(). Init new receiver info: lowerID=" + lower_id + ", peer=" + newMsg.to_id.toString());
+
+                // Update time-to-live for msg
                 if (ttl != 0) {
                     newMsg.ttl = ttl;
                 } else {
@@ -2675,7 +2704,10 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 newMsg.media_unread = true;
             }
 
+            // Update state
             newMsg.send_state = MessageObject.MESSAGE_SEND_STATE_SENDING;
+
+            // Construct new MessageObject
             newMsgObj = new MessageObject(currentAccount, newMsg, reply_to_msg, true);
             newMsgObj.scheduled = scheduleDate != 0;
             if (!newMsgObj.isForwarded() && (newMsgObj.type == 3 || videoEditedInfo != null || newMsgObj.type == 2) && !TextUtils.isEmpty(newMsg.attachPath)) {
@@ -2734,6 +2766,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                 }
             }
 
+            // Request send
             boolean performMediaUpload = false;
 
             if (type == 0 || type == 9 && message != null && encryptedChat != null) {
@@ -3860,7 +3893,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         if (message == null) {
             return;
         }
-        if (message.id > 0) {
+        if (message.id > 0) { // TODO: Check whether "sent msg" has ID > 0 ???
             editingMessages.put(message.id, message);
         } else {
             boolean contains = sendingMessages.indexOfKey(message.id) >= 0;
@@ -4054,7 +4087,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                             sentMessages.add(message);
                             updateMediaPaths(msgObj, message, message.id, originalPath, false);
                             existFlags = msgObj.getMediaExistanceFlags();
-                            newMsgObj.id = message.id;
+                            newMsgObj.id = message.id; // Update msg ID when receive response from server
                             if ((newMsgObj.flags & TLRPC.MESSAGE_FLAG_MEGAGROUP) != 0) {
                                 message.flags |= TLRPC.MESSAGE_FLAG_MEGAGROUP;
                             }
@@ -4142,6 +4175,11 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         return maxDelayedMessage;
     }
 
+    /**
+     * Perform send message
+     * @param req Send msg request
+     * @param msgObj The msg that need to be sent
+     */
     protected void performSendMessageRequest(final TLObject req, final MessageObject msgObj, final String originalPath, DelayedMessage parentMessage, boolean check, DelayedMessage delayedMessage, Object parentObject, boolean scheduled) {
         if (!(req instanceof TLRPC.TL_messages_editMessage)) {
             if (check) {
@@ -4249,7 +4287,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                             final TLRPC.TL_updateShortSentMessage res = (TLRPC.TL_updateShortSentMessage) response;
                             updateMediaPaths(msgObj, null, res.id, null, false);
                             existFlags = msgObj.getMediaExistanceFlags();
-                            newMsgObj.local_id = newMsgObj.id = res.id;
+                            newMsgObj.local_id = newMsgObj.id = res.id; // Update msg ID when receive response from server
                             newMsgObj.date = res.date;
                             newMsgObj.entities = res.entities;
                             newMsgObj.out = res.out;
@@ -4309,7 +4347,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
                                 }
                                 updateMediaPaths(msgObj, message, message.id, originalPath, false);
                                 existFlags = msgObj.getMediaExistanceFlags();
-                                newMsgObj.id = message.id;
+                                newMsgObj.id = message.id; // Update msg ID when receive response from server
                             } else {
                                 isSentError = true;
                                 existFlags = 0;
@@ -4594,6 +4632,7 @@ public class SendMessagesHelper extends BaseController implements NotificationCe
         return delayedMessages.get(location);
     }
 
+    // Generate random ID for ???
     protected long getNextRandomId() {
         long val = 0;
         while (val == 0) {

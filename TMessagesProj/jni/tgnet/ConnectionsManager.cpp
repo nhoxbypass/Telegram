@@ -554,7 +554,7 @@ int32_t ConnectionsManager::getTimeDifference() {
 }
 
 int64_t ConnectionsManager::generateMessageId() {
-    int64_t messageId = (int64_t) ((((double) getCurrentTimeMillis() + ((double) timeDifference) * 1000) * 4294967296.0) / 1000.0);
+    int64_t messageId = (int64_t) ((((double) getCurrentTimeMillis() + ((double) timeDifference) * 1000) * 4294967296.0) / 1000.0); // Generate msg ID locally
     if (messageId <= lastOutgoingMessageId) {
         messageId = lastOutgoingMessageId + 1;
     }
@@ -750,7 +750,7 @@ void ConnectionsManager::onConnectionQuickAckReceived(Connection *connection, in
     quickAckIdToRequestIds.erase(iter);
 }
 
-void ConnectionsManager::onConnectionDataReceived(Connection *connection, NativeByteBuffer *data, uint32_t length) {
+void ConnectionsManager::onConnectionDataReceived(Connection *connection, NativeByteBuffer *data, uint32_t length) { // Process received data result from server
     bool error = false;
     if (length <= 24 + 32) {
         int32_t code = data->readInt32(&error);
@@ -799,7 +799,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
     }
 
     if (keyId == 0) {
-        int64_t messageId = data->readInt64(&error);
+        int64_t messageId = data->readInt64(&error);  // Read msgID from data buffer
         if (error) {
             connection->reconnect();
             return;
@@ -858,14 +858,14 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
         data->position(mark + 24);
 
         int64_t messageServerSalt = data->readInt64(&error);
-        int64_t messageSessionId = data->readInt64(&error);
+        int64_t messageSessionId = data->readInt64(&error); // Read sessionID from data buffer
 
         if (messageSessionId != connection->getSessionId()) {
             if (LOGS_ENABLED) DEBUG_E("connection(%p) received invalid message session id (0x%" PRIx64 " instead of 0x%" PRIx64 ")", connection, (uint64_t) messageSessionId, (uint64_t) connection->getSessionId());
             return;
         }
 
-        int64_t messageId = data->readInt64(&error);
+        int64_t messageId = data->readInt64(&error); // Read msgID from data buffer
         int32_t messageSeqNo = data->readInt32(&error);
         uint32_t messageLength = data->readUint32(&error);
 
@@ -879,7 +879,7 @@ void ConnectionsManager::onConnectionDataReceived(Connection *connection, Native
 
         if (processedStatus != 1) {
             deserializingDatacenter = datacenter;
-            object = TLdeserialize(nullptr, messageLength, data);
+            object = TLdeserialize(nullptr, messageLength, data); //
             if (processedStatus == 2) {
                 if (object == nullptr) {
                     connection->recreateSession();
@@ -957,7 +957,7 @@ TLObject *ConnectionsManager::getRequestWithMessageId(int64_t messageId) {
 TLObject *ConnectionsManager::TLdeserialize(TLObject *request, uint32_t bytes, NativeByteBuffer *data) {
     bool error = false;
     uint32_t position = data->position();
-    uint32_t constructor = data->readUint32(&error);
+    uint32_t constructor = data->readUint32(&error); // Parse msg type
     if (error) {
         data->position(position);
         return nullptr;
@@ -996,7 +996,7 @@ TLObject *ConnectionsManager::TLdeserialize(TLObject *request, uint32_t bytes, N
     return object;
 }
 
-void ConnectionsManager::processServerResponse(TLObject *message, int64_t messageId, int32_t messageSeqNo, int64_t messageSalt, Connection *connection, int64_t innerMsgId, int64_t containerMessageId) {
+void ConnectionsManager::processServerResponse(TLObject *message, int64_t messageId, int32_t messageSeqNo, int64_t messageSalt, Connection *connection, int64_t innerMsgId, int64_t containerMessageId) { // Process sau khi parse received data from server?
     const std::type_info &typeInfo = typeid(*message);
 
     if (LOGS_ENABLED) DEBUG_D("process server response %p - %s", message, typeInfo.name());
@@ -1552,7 +1552,7 @@ void ConnectionsManager::processServerResponse(TLObject *message, int64_t messag
     }
 }
 
-void ConnectionsManager::sendPing(Datacenter *datacenter, bool usePushConnection) {
+void ConnectionsManager::sendPing(Datacenter *datacenter, bool usePushConnection) { // Send ping ???
     if (usePushConnection && (currentUserId == 0 || !usePushConnection)) {
         return;
     }
@@ -1693,6 +1693,7 @@ int32_t ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onCompl
     return sendRequest(object, onComplete, onQuickAck, flags, datacenterId, connetionType, immediate, requestToken);
 }
 
+// Native send request
 int32_t ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onComplete, onQuickAckFunc onQuickAck, uint32_t flags, uint32_t datacenterId, ConnectionType connetionType, bool immediate, int32_t requestToken) {
     if (!currentUserId && !(flags & RequestFlagWithoutLogin)) {
         if (LOGS_ENABLED) DEBUG_D("can't do request without login %s", typeid(*object).name());
@@ -1714,6 +1715,7 @@ int32_t ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onCompl
     return requestToken;
 }
 
+// Native send request
 #ifdef ANDROID
 void ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onComplete, onQuickAckFunc onQuickAck, onWriteToSocketFunc onWriteToSocket, uint32_t flags, uint32_t datacenterId, ConnectionType connetionType, bool immediate, int32_t requestToken, jobject ptr1, jobject ptr2, jobject ptr3) {
     if (!currentUserId && !(flags & RequestFlagWithoutLogin)) {
@@ -1749,7 +1751,7 @@ void ConnectionsManager::sendRequest(TLObject *object, onCompleteFunc onComplete
         if (LOGS_ENABLED) DEBUG_D("send request wrapped %p - %s", request->rpcRequest.get(), typeid(*(request->rpcRequest.get())).name());
         requestsQueue.push_back(std::unique_ptr<Request>(request));
         if (immediate) {
-            processRequestQueue(0, 0);
+            processRequestQueue(0, 0); // Process queue send request for Android
         }
     });
 }
@@ -1911,14 +1913,14 @@ void ConnectionsManager::sendMessagesToConnection(std::vector<std::unique_ptr<Ne
 
     uint32_t currentSize = 0;
     size_t count = messages.size();
-    for (uint32_t a = 0; a < count; a++) {
+    for (uint32_t a = 0; a < count; a++) { // Loop thru msg array, "batching" msg to send
         NetworkMessage *networkMessage = messages[a].get();
         currentMessages.push_back(std::move(messages[a]));
         currentSize += networkMessage->message->bytes;
 
-        if (currentSize >= 3 * 1024 || a == count - 1) {
+        if (currentSize >= 3 * 1024 || a == count - 1) { // Reach 3KB OR reach the end of msg array --> Start send the batch msg
             int32_t quickAckId = 0;
-            NativeByteBuffer *transportData = datacenter->createRequestsData(currentMessages, reportAck ? &quickAckId : nullptr, connection, false);
+            NativeByteBuffer *transportData = datacenter->createRequestsData(currentMessages, reportAck ? &quickAckId : nullptr, connection, false); // Data packet to transport
 
             if (transportData != nullptr) {
                 if (reportAck && quickAckId != 0) {
@@ -1942,7 +1944,7 @@ void ConnectionsManager::sendMessagesToConnection(std::vector<std::unique_ptr<Ne
                     }
                 }
 
-                connection->sendData(transportData, reportAck, true);
+                connection->sendData(transportData, reportAck, true); // Request send data
             } else {
                 if (LOGS_ENABLED) DEBUG_E("connection(%p) connection data is empty", connection);
             }
@@ -1953,7 +1955,7 @@ void ConnectionsManager::sendMessagesToConnection(std::vector<std::unique_ptr<Ne
     }
 }
 
-void ConnectionsManager::sendMessagesToConnectionWithConfirmation(std::vector<std::unique_ptr<NetworkMessage>> &messages, Connection *connection, bool reportAck) {
+void ConnectionsManager::sendMessagesToConnectionWithConfirmation(std::vector<std::unique_ptr<NetworkMessage>> &messages, Connection *connection, bool reportAck) { // Check & confirm request to send msg to connection
     NetworkMessage *networkMessage = connection->generateConfirmationRequest();
     if (networkMessage != nullptr) {
         messages.push_back(std::unique_ptr<NetworkMessage>(networkMessage));
@@ -2258,7 +2260,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
     }
 
     Connection *genericConnection = nullptr;
-    Datacenter *defaultDatacenter = getDatacenterWithId(currentDatacenterId);
+    Datacenter *defaultDatacenter = getDatacenterWithId(currentDatacenterId); //
     if (defaultDatacenter != nullptr) {
         genericConnection = defaultDatacenter->getGenericConnection(true, 0);
         if (genericConnection != nullptr && !sessionsToDestroy.empty() && genericConnection->getConnectionToken() != 0) {
@@ -2411,7 +2413,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
                 break;
         }
 
-        request->messageId = generateMessageId();
+        request->messageId = generateMessageId(); // Generate message ID for sending
         if (request->rawRequest->initFunc != nullptr) {
             request->rawRequest->initFunc(request->messageId);
         }
@@ -2483,7 +2485,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
         iter = requestsQueue.erase(iter);
     }
 
-    for (std::map<uint32_t, Datacenter *>::iterator iter = datacenters.begin(); iter != datacenters.end(); iter++) {
+    for (std::map<uint32_t, Datacenter *>::iterator iter = datacenters.begin(); iter != datacenters.end(); iter++) { // Push msg into queue
         Datacenter *datacenter = iter->second;
         std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter2 = genericMessagesToDatacenters.find(datacenter->getDatacenterId());
         if (iter2 == genericMessagesToDatacenters.end()) {
@@ -2510,7 +2512,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
         }
     }
 
-    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = genericMessagesToDatacenters.begin(); iter != genericMessagesToDatacenters.end(); iter++) {
+    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = genericMessagesToDatacenters.begin(); iter != genericMessagesToDatacenters.end(); iter++) { // Send msg in generic queue
         Datacenter *datacenter = getDatacenterWithId(iter->first);
         if (datacenter != nullptr) {
             bool scannedPreviousRequests = false;
@@ -2574,7 +2576,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
         }
     }
 
-    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = tempMessagesToDatacenters.begin(); iter != tempMessagesToDatacenters.end(); iter++) {
+    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = tempMessagesToDatacenters.begin(); iter != tempMessagesToDatacenters.end(); iter++) {  // Send msg in temp msg queue
         Datacenter *datacenter = getDatacenterWithId(iter->first);
         if (datacenter != nullptr) {
             std::vector<std::unique_ptr<NetworkMessage>> &array = iter->second;
@@ -2582,7 +2584,7 @@ void ConnectionsManager::processRequestQueue(uint32_t connectionTypes, uint32_t 
         }
     }
 
-    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = genericMediaMessagesToDatacenters.begin(); iter != genericMediaMessagesToDatacenters.end(); iter++) {
+    for (std::map<uint32_t, std::vector<std::unique_ptr<NetworkMessage>>>::iterator iter = genericMediaMessagesToDatacenters.begin(); iter != genericMediaMessagesToDatacenters.end(); iter++) {  // Send msg in generic media msg queue
         Datacenter *datacenter = getDatacenterWithId(iter->first);
         if (datacenter != nullptr) {
             std::vector<std::unique_ptr<NetworkMessage>> &array = iter->second;

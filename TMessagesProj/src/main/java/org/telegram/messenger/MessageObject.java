@@ -55,6 +55,7 @@ import java.util.HashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// This class contains data of a message
 public class MessageObject {
 
     public static final int MESSAGE_SEND_STATE_SENT = 0;

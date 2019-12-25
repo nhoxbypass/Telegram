@@ -9,6 +9,9 @@
 package org.telegram.tgnet;
 
 import android.text.TextUtils;
+import android.util.Log;
+
+import androidx.annotation.NonNull;
 
 import org.telegram.messenger.Utilities;
 
@@ -295,6 +298,7 @@ public class TLRPC {
         }
     }
 
+    // Chat photo ? ? ?
     public static class TL_chatPhoto extends ChatPhoto {
         public static int constructor = 0x475cdbd5;
 
@@ -2763,6 +2767,7 @@ public class TLRPC {
 		}
 	}
 
+	// Msg receiver ? ? ?
 	public static abstract class Peer extends TLObject {
 		public int channel_id;
 		public int user_id;
@@ -2789,7 +2794,13 @@ public class TLRPC {
 			}
 			return result;
 		}
-	}
+
+        @NonNull
+        @Override
+        public String toString() {
+            return "[" + getClass().getSimpleName() + ". ChannelID=" + channel_id + ", UserID=" + user_id + ", ChatID=" + chat_id + "]";
+        }
+    }
 
 	public static class TL_peerChannel extends Peer {
 		public static int constructor = 0xbddde532;
@@ -3788,8 +3799,8 @@ public class TLRPC {
     }
 
 	public static abstract class GeoPoint extends TLObject {
-		public double _long;
-		public double lat;
+		public double _long; // Longitude of the location, in degrees. As defined by the sender
+		public double lat; // Latitude of the location in degrees. As defined by the sender
 		public long access_hash;
 
 		public static GeoPoint TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
@@ -6935,8 +6946,8 @@ public class TLRPC {
 		public long id;
 		public long access_hash;
 		public int date;
-		public int duration;
-		public String mime_type;
+		public int duration; // Duration of the audio, in seconds, As defined by the sender
+		public String mime_type; // The MIME type of the file, As defined by the sender
 		public int size;
 		public int dc_id;
 		public int user_id;
@@ -7335,11 +7346,11 @@ public class TLRPC {
 	}
 
 	public static abstract class ReplyMarkup extends TLObject {
-		public ArrayList<TL_keyboardButtonRow> rows = new ArrayList<>();
+		public ArrayList<TL_keyboardButtonRow> rows = new ArrayList<>(); // A list of rows of inline keyboard buttons
 		public int flags;
 		public boolean selective;
-		public boolean single_use;
-		public boolean resize;
+		public boolean single_use; // True, if the client needs to hide the keyboard after use
+		public boolean resize; // True, if the client needs to resize the keyboard vertically
 
 		public static ReplyMarkup TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
 			ReplyMarkup result = null;
@@ -11159,23 +11170,26 @@ public class TLRPC {
 		}
 	}
 
+    /**
+     * Describes a web page preview
+     */
 	public static abstract class WebPage extends TLObject {
 		public int flags;
 		public long id;
-		public String url;
-		public String display_url;
+		public String url; // Original URL of the link
+		public String display_url; // URL to display
 		public int hash;
-		public String type;
-		public String site_name;
-		public String title;
-		public String description;
-		public Photo photo;
-		public String embed_url;
-		public String embed_type;
-		public int embed_width;
-		public int embed_height;
-		public int duration;
-		public String author;
+		public String type; // Type of the web page. Can be: article, photo, audio, video, document, profile, app, or something else
+		public String site_name; // Short name of the site (e.g., Google Docs, App Store)
+		public String title; // Title of the content
+		public String description; // Description of the content
+		public Photo photo; // Image representing the content
+		public String embed_url; // URL to show in the embedded preview
+		public String embed_type; // MIME type of the embedded preview, (e.g., text/html or video/mp4)
+		public int embed_width; // Width of the embedded preview
+		public int embed_height; // Height of the embedded preview
+		public int duration; // Duration of the content, in seconds
+		public String author; // Author of the content
 		public Document document;
         public ArrayList<Document> documents = new ArrayList<>();
 		public Page cached_page;
@@ -15483,14 +15497,14 @@ public class TLRPC {
 		public long access_hash;
 		public int user_id;
 		public int date;
-		public int duration;
+		public int duration; // Duration of the video, in seconds. As defined by the sender
 		public int size;
-		public PhotoSize thumb;
+		public PhotoSize thumb; // Video thumbnail. As defined by the sender
 		public int dc_id;
-		public int w;
-		public int h;
-		public String mime_type;
-		public String caption;
+		public int w; // Video width. As defined by the sender
+		public int h; // Video height. As defined by the sender
+		public String mime_type; // MIME type of the file. As defined by the sender
+		public String caption; // Video caption
 		public byte[] key;
 		public byte[] iv;
 
@@ -16411,7 +16425,7 @@ public class TLRPC {
 		public int user_id;
 		public int date;
 		public String file_name;
-		public String mime_type;
+		public String mime_type; // MIME type of the file. As defined by the sender
 		public int size;
         public ArrayList<PhotoSize> thumbs = new ArrayList<>();
 		public int version;
@@ -21668,6 +21682,9 @@ public class TLRPC {
 			if (result != null) {
 				result.readParams(stream, exception);
 			}
+
+			Log.d("Genius", result.getClass().getSimpleName() + "#readParams(). URL=" + result.url);
+
 			return result;
 		}
 	}
@@ -22020,16 +22037,16 @@ public class TLRPC {
     public static abstract class Photo extends TLObject {
 
         public int flags;
-        public boolean has_stickers;
+        public boolean has_stickers; // True, if stickers were added to the photo
         public long id;
         public long access_hash;
         public byte[] file_reference;
         public int date;
-        public ArrayList<PhotoSize> sizes = new ArrayList<>();
+        public ArrayList<PhotoSize> sizes = new ArrayList<>(); // Available variants of the photo, in different sizes
         public int dc_id;
         public int user_id;
         public GeoPoint geo;
-        public String caption;
+        public String caption; // Photo caption
 
         public static Photo TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
             Photo result = null;
@@ -23284,10 +23301,10 @@ public class TLRPC {
     public static class TL_poll extends TLObject {
         public static int constructor = 0xd5529d06;
 
-        public long id;
+        public long id; // Unique poll identifier
         public int flags;
-        public boolean closed;
-        public String question;
+        public boolean closed; // True, if the poll is closed
+        public String question; // Poll question, 1-255 characters
         public ArrayList<TL_pollAnswer> answers = new ArrayList<>();
 
         public static TL_poll TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
@@ -25463,12 +25480,12 @@ public class TLRPC {
 		public static int constructor = 0xbdf9653b;
 
 		public int flags;
-		public long id;
+		public long id; // Game ID
 		public long access_hash;
-		public String short_name;
-		public String title;
-		public String description;
-		public Photo photo;
+		public String short_name; // Game short name. To share a game use the URL https://t.me/{bot_username}?game={game_short_name}
+		public String title; // Game title
+		public String description; // Game description
+		public Photo photo; // Game photo
 		public Document document;
 
 		public static TL_game TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
@@ -27025,8 +27042,8 @@ public class TLRPC {
 	}
 
 	public static abstract class Chat extends TLObject {
-		public int id;
-		public String title;
+		public int id; // Chat unique identifier
+		public String title; // Chat title
 		public int date;
 		public int flags;
 		public boolean creator;
@@ -27035,7 +27052,7 @@ public class TLRPC {
 		public boolean left;
         public boolean has_geo;
         public boolean slowmode_enabled;
-		public ChatPhoto photo;
+		public ChatPhoto photo; // why put ChatPhoto in this?
 		public int participants_count;
 		public int version;
 		public boolean broadcast;
@@ -27123,6 +27140,9 @@ public class TLRPC {
 			if (result != null) {
 				result.readParams(stream, exception);
 			}
+
+            Log.d("Genius", result.getClass().getSimpleName() + "#readParams(). ID=" + result.id + ", title=" + result.title + ", username=" + result.username);
+
 			return result;
 		}
 
@@ -28851,17 +28871,20 @@ public class TLRPC {
 		}
 	}
 
+    /**
+     * Contains information about a forwarded message
+     */
     public static abstract class MessageFwdHeader extends TLObject {
 
         public int flags;
-        public int from_id;
-        public String from_name;
-        public int date;
-        public int channel_id;
-        public int channel_post;
+        public int from_id; // Identifier of the user that originally sent the message
+        public String from_name; // Name of the sender
+        public int date; // Point in time (Unix timestamp) when the message was originally sent
+        public int channel_id; // Identifier of the Channel from which the message was originally forwarded
+        public int channel_post; // Message identifier of the original message
         public String post_author;
-        public Peer saved_from_peer;
-        public int saved_from_msg_id;
+        public Peer saved_from_peer; // For messages forwarded to the chat with the current user (saved messages) or to the channel discussion supergroup, the identifier of the chat from which the message was forwarded last time
+        public int saved_from_msg_id; // For messages forwarded to the chat with the current user (saved messages) or to the channel discussion supergroup, the identifier of the original message from which the new message was forwarded last time
 
         public static MessageFwdHeader TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
             MessageFwdHeader result = null;
@@ -30054,6 +30077,7 @@ public class TLRPC {
 		}
 	}
 
+	// Package update data when sent msg ???
 	public static class TL_updateShortSentMessage extends Updates {
 		public static int constructor = 0x11f1331c;
 
@@ -38013,29 +38037,45 @@ public class TLRPC {
 		public byte[] bytes;
 		public Audio audio_unused;
 		public int flags;
-		public boolean shipping_address_requested;
+
+		// A photo message
 		public Photo photo;
+
+		// A message with a location: Use for LOCATION & VENUE msg
 		public GeoPoint geo;
-		public String currency;
-		public String description;
-		public int receipt_msg_id;
-		public long total_amount;
-		public String start_param;
-		public String title;
-		public String address;
-		public String provider;
-		public String venue_id;
+
+		// Invoice:  A message with an invoice from a bot
+        public boolean shipping_address_requested; // True, if the shipping address should be specified
+        public String currency; // Currency for the product price
+        public String description; // Product description
+		public int receipt_msg_id; // The identifier of the message with the receipt, after the product has been purchased
+		public long total_amount; // Product total price in the minimal quantity of the currency
+		public String start_param; // Unique invoice bot start_parameter. To share an invoice use the URL https://t.me/{bot_username}?start={start_parameter}
+
+		// Venue
+		public String title; // Venue name. As defined by the sender
+		public String address; // Venue address. As defined by the sender
+		public String provider; // Provider of the venue database. As defined by the sender. Currently only "foursquare" needs to be supported
+		public String venue_id; // Identifier of the venue in the provider database
+        public String venue_type; // Type of the venue in the provider database. As defined by the sender
+
 		public Video video_unused;
 		public Document document;
 		public String captionLegacy;
+
+		// A message with a game
 		public TL_game game;
-		public String phone_number;
-		public String first_name;
-		public String last_name;
-		public String vcard;
-		public int user_id;
+
+		// Contact
+		public String phone_number; // Phone number of the user
+		public String first_name; // First name of the user
+		public String last_name; // Last name of the user
+		public String vcard; // Additional data about the user in a form of vCard
+		public int user_id; // Identifier of the user, if known. Otherwise 0
+
+        // Describes a web page preview
 		public WebPage webpage;
-		public String venue_type;
+
 		public boolean test;
 		public int period;
         public int ttl_seconds;
@@ -38502,38 +38542,47 @@ public class TLRPC {
     }
     //EncryptedChat end
 
+    // Base msg TLobject
     //Message start
     public static abstract class Message extends TLObject {
-        public int id;
-        public int from_id;
+        public int id; // Message identifier, unique for the chat to which the message belongs
+        public int from_id; // Identifier of the user who sent the message. 0 if unknown (Currently, it is unknown for channel posts and for channel posts automatically forwarded to discussion group)
         public Peer to_id;
-        public int date;
+        public int date; // Point in time (Unix timestamp) when the message was sent
         public MessageAction action;
-        public int reply_to_msg_id;
+        public int reply_to_msg_id; // If non-zero, the identifier of the message this message is replying to. Can be the identifier of a deleted message
 		public long reply_to_random_id;
+
+        // Msg content
         public String message;
         public MessageMedia media;
+
         public int flags;
 		public boolean mentioned;
 		public boolean media_unread;
-		public boolean out;
+		public boolean out; // True, if the message is outgoing
 		public boolean unread;
         public ArrayList<MessageEntity> entities = new ArrayList<>();
-		public String via_bot_name;
-        public ReplyMarkup reply_markup;
-		public int views;
-		public int edit_date;
+
+        public ReplyMarkup reply_markup; // Reply markup for the message
+		public int views; // Number of times this message was viewed
+		public int edit_date; // Point in time (Unix timestamp) when the message was last edited
+
 		public boolean silent;
 		public boolean post;
         public boolean from_scheduled;
         public boolean legacy;
         public boolean edit_hide;
+
 		public MessageFwdHeader fwd_from;
-		public int via_bot_id;
+        public String via_bot_name;
+		public int via_bot_id; // If non-zero, the user identifier of the bot through which this message was sent
         public String post_author;
+
 		public long grouped_id;
         public TL_messageReactions reactions;
         public ArrayList<TL_restrictionReason> restriction_reason = new ArrayList<>();
+
         public int send_state = 0; //custom
         public int fwd_msg_id = 0; //custom
         public String attachPath = ""; //custom
@@ -38541,7 +38590,7 @@ public class TLRPC {
         public long random_id; //custom
         public int local_id = 0; //custom
         public long dialog_id; //custom
-        public int ttl; //custom
+        public int ttl; //custom. For self-destructing messages, the message's TTL (Time To Live), in seconds. 0 if none. TDLib will send updateDeleteMessages or updateMessageContent once the TTL expires
         public int destroyTime; //custom
         public int layer; //custom
         public int seq_in; //custom
@@ -38728,6 +38777,7 @@ public class TLRPC {
 		public void readParams(AbstractSerializedData stream, boolean exception) {
 			id = stream.readInt32(exception);
 			to_id = new TL_peerUser();
+            Log.d("Genius", "TL_messageEmpty#readParams(). ID=" + id + ", msg=" + message);
 		}
 
 		public void serializeToStream(AbstractSerializedData stream) {
@@ -39299,6 +39349,7 @@ public class TLRPC {
         }
     }
 
+    // This is a normal msg
     public static class TL_message extends Message {
         public static int constructor = 0x452c0e65;
 
@@ -39387,6 +39438,9 @@ public class TLRPC {
                     restriction_reason.add(object);
                 }
             }
+
+            Log.d("Genius", "TL_message#readParams(). ID=" + id +  ", fromID=" + from_id + ", toID=" + to_id.toString()
+                    + ", msg=" + message + ", localID=" + local_id + ", randomID=" + random_id + ", realID=" + realId + ", reqID=" + reqId);
         }
 
         public void serializeToStream(AbstractSerializedData stream) {

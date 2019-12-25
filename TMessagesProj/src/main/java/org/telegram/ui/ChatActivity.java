@@ -220,7 +220,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
     private ActionBarMenuItem searchItem;
     private RadialProgressView progressBar;
     private ActionBarMenuSubItem addContactItem;
-    private RecyclerListView chatListView;
+    private RecyclerListView chatListView; // List of chat row
     private int chatListViewClipTop;
     private GridLayoutManagerFixed chatLayoutManager;
     private ChatActivityAdapter chatAdapter;
@@ -9981,7 +9981,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 }
                 messagesDict[0].remove(msgId);
                 messagesDict[0].put(newMsgId, obj);
-                obj.messageOwner.id = newMsgId;
+                obj.messageOwner.id = newMsgId; // Noti msg received by server
                 obj.messageOwner.send_state = MessageObject.MESSAGE_SEND_STATE_SENT;
                 obj.forceUpdate = mediaUpdated;
                 if (args.length >= 6) {
@@ -14395,6 +14395,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     view = new ChatMessageCell(mContext);
                 }
                 ChatMessageCell chatMessageCell = (ChatMessageCell) view;
+
                 chatMessageCell.setDelegate(new ChatMessageCell.ChatMessageCellDelegate() {
                     @Override
                     public void didPressShare(ChatMessageCell cell) {
@@ -14900,11 +14901,13 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                         alredyPlayedStickers.put(message, true);
                     }
                 });
+
                 if (currentEncryptedChat == null) {
                     chatMessageCell.setAllowAssistant(true);
                 }
             } else if (viewType == 1) {
                 view = new ChatActionCell(mContext);
+
                 ((ChatActionCell) view).setDelegate(new ChatActionCell.ChatActionCellDelegate() {
                     @Override
                     public void didClickImage(ChatActionCell cell) {

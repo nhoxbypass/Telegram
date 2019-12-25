@@ -34,6 +34,11 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Persistent msg storage, which using SQlite database.
+ *
+ * @see SQLiteDatabase
+ */
 public class MessagesStorage extends BaseController {
 
     public interface IntCallback {

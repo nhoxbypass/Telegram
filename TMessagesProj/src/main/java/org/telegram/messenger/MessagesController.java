@@ -8558,7 +8558,7 @@ public class MessagesController extends BaseController implements NotificationCe
             } else {
                 if (getMessagesStorage().getLastPtsValue() + updates.pts_count == updates.pts) {
                     TLRPC.TL_message message = new TLRPC.TL_message();
-                    message.id = updates.id;
+                    message.id = updates.id; // received msg ?
                     int clientUserId = getUserConfig().getClientUserId();
                     if (updates instanceof TLRPC.TL_updateShortMessage) {
                         if (updates.out) {
@@ -8586,7 +8586,7 @@ public class MessagesController extends BaseController implements NotificationCe
                     message.date = updates.date;
                     message.via_bot_id = updates.via_bot_id;
                     message.flags = updates.flags | TLRPC.MESSAGE_FLAG_HAS_FROM_ID;
-                    message.reply_to_msg_id = updates.reply_to_msg_id;
+                    message.reply_to_msg_id = updates.reply_to_msg_id; //
                     message.media = new TLRPC.TL_messageMediaEmpty();
 
                     ConcurrentHashMap<Long, Integer> read_max = message.out ? dialogs_read_outbox_max : dialogs_read_inbox_max;

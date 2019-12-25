@@ -962,7 +962,7 @@ TLObject *Datacenter::getCurrentHandshakeRequest(bool media) {
     return nullptr;
 }
 
-inline void generateMessageKey(int32_t instanceNum, uint8_t *authKey, uint8_t *messageKey, uint8_t *result, bool incoming, int mtProtoVersion) {
+inline void generateMessageKey(int32_t instanceNum, uint8_t *authKey, uint8_t *messageKey, uint8_t *result, bool incoming, int mtProtoVersion) { // Generate MTProto msg key (not the msg ID)
     uint32_t x = incoming ? 8 : 0;
     thread_local static uint8_t sha[68];
     switch (mtProtoVersion) {
@@ -1046,7 +1046,7 @@ ByteArray *Datacenter::getAuthKey(ConnectionType connectionType, bool perm, int6
     }
 }
 
-NativeByteBuffer *Datacenter::createRequestsData(std::vector<std::unique_ptr<NetworkMessage>> &requests, int32_t *quickAckId, Connection *connection, bool pfsInit) {
+NativeByteBuffer *Datacenter::createRequestsData(std::vector<std::unique_ptr<NetworkMessage>> &requests, int32_t *quickAckId, Connection *connection, bool pfsInit) { // Create send request for batch msg
     int64_t authKeyId;
     ByteArray *authKey = getAuthKey(connection->getConnectionType(), pfsInit, &authKeyId, 1);
     if (authKey == nullptr || connection == nullptr) {
@@ -1071,12 +1071,12 @@ NativeByteBuffer *Datacenter::createRequestsData(std::vector<std::unique_ptr<Net
         int64_t messageTime = (int64_t) (networkMessage->message->msg_id / 4294967296.0 * 1000);
         int64_t currentTime = ConnectionsManager::getInstance(instanceNum).getCurrentTimeMillis() + (int64_t) ConnectionsManager::getInstance(instanceNum).getTimeDifference() * 1000;
 
-        if (!pfsInit && (messageTime < currentTime - 30000 || messageTime > currentTime + 25000)) {
+        if (!pfsInit && (messageTime < currentTime - 30000 || messageTime > currentTime + 25000)) { // Msg has been generated NOT in the last 30 secs (too old msg). OR ...
             if (LOGS_ENABLED) DEBUG_D("wrap message in container");
             TL_msg_container *messageContainer = new TL_msg_container();
             messageContainer->messages.push_back(std::move(networkMessage->message));
 
-            messageId = ConnectionsManager::getInstance(instanceNum).generateMessageId();
+            messageId = ConnectionsManager::getInstance(instanceNum).generateMessageId(); // Generate msg id for container
             messageBody = messageContainer;
             messageSeqNo = connection->generateMessageSeqNo(false);
             freeMessageBody = true;
@@ -1098,7 +1098,7 @@ NativeByteBuffer *Datacenter::createRequestsData(std::vector<std::unique_ptr<Net
             if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) send message (session: 0x%" PRIx64 ", seqno: %d, messageid: 0x%" PRIx64 "): %s(%p)", connection, instanceNum, datacenterId, connection->getConnectionType(), (uint64_t) connection->getSessionId(), networkMessage->message->seqno, (uint64_t) networkMessage->message->msg_id, typeid(*messageBody).name(), messageBody);
             messageContainer->messages.push_back(std::unique_ptr<TL_message>(std::move(networkMessage->message)));
         }
-        messageId = ConnectionsManager::getInstance(instanceNum).generateMessageId();
+        messageId = ConnectionsManager::getInstance(instanceNum).generateMessageId(); // Generate msg id for container
         messageBody = messageContainer;
         freeMessageBody = true;
         messageSeqNo = connection->generateMessageSeqNo(false);
@@ -1134,10 +1134,10 @@ NativeByteBuffer *Datacenter::createRequestsData(std::vector<std::unique_ptr<Net
         buffer->writeInt64(getServerSalt());
         buffer->writeInt64(connection->getSessionId());
     }
-    buffer->writeInt64(messageId);
+    buffer->writeInt64(messageId); // Write msg ID
     buffer->writeInt32(messageSeqNo);
     buffer->writeInt32(messageSize);
-    messageBody->serializeToStream(buffer);
+    messageBody->serializeToStream(buffer); // Write serialized msg body into buffer
     if (freeMessageBody) {
         delete messageBody;
     }

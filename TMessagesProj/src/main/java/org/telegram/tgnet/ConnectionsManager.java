@@ -239,6 +239,7 @@ public class ConnectionsManager extends BaseController {
                 object.serializeToStream(buffer);
                 object.freeResources();
 
+                // Native send request
                 native_sendRequest(currentAccount, buffer.address, (response, errorCode, errorText, networkType) -> {
                     try {
                         TLObject resp = null;
@@ -264,7 +265,7 @@ public class ConnectionsManager extends BaseController {
                         final TLObject finalResponse = resp;
                         final TLRPC.TL_error finalError = error;
                         Utilities.stageQueue.postRunnable(() -> {
-                            onComplete.run(finalResponse, finalError);
+                            onComplete.run(finalResponse, finalError); // Delegate response
                             if (finalResponse != null) {
                                 finalResponse.freeResources();
                             }
@@ -439,7 +440,7 @@ public class ConnectionsManager extends BaseController {
             NativeByteBuffer buff = NativeByteBuffer.wrap(address);
             buff.reused = true;
             int constructor = buff.readInt32(true);
-            final TLObject message = TLClassStore.Instance().TLdeserialize(buff, constructor, true);
+            final TLObject message = TLClassStore.Instance().TLdeserialize(buff, constructor, true); // Parse msg data
             if (message instanceof TLRPC.Updates) {
                 if (BuildVars.LOGS_ENABLED) {
                     FileLog.d("java received " + message);

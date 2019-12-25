@@ -256,7 +256,7 @@ void Connection::onReceivedData(NativeByteBuffer *buffer) {
 
         uint32_t old = buffer->limit();
         buffer->limit(buffer->position() + currentPacketLength);
-        ConnectionsManager::getInstance(currentDatacenter->instanceNum).onConnectionDataReceived(this, buffer, currentPacketLength);
+        ConnectionsManager::getInstance(currentDatacenter->instanceNum).onConnectionDataReceived(this, buffer, currentPacketLength); //
         buffer->position(buffer->limit());
         buffer->limit(old);
 
@@ -412,7 +412,7 @@ bool Connection::allowsCustomPadding() {
     return currentProtocolType == ProtocolTypeTLS || currentProtocolType == ProtocolTypeDD || currentProtocolType == ProtocolTypeEF;
 }
 
-void Connection::sendData(NativeByteBuffer *buff, bool reportAck, bool encrypted) {
+void Connection::sendData(NativeByteBuffer *buff, bool reportAck, bool encrypted) { // Send msg data packet
     if (buff == nullptr) {
         return;
     }

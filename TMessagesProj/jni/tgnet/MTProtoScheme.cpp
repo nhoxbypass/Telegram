@@ -16,7 +16,7 @@
 #include "BuffersStorage.h"
 #include "ConnectionsManager.h"
 
-TLObject *TLClassStore::TLdeserialize(NativeByteBuffer *stream, uint32_t bytes, uint32_t constructor, int32_t instanceNum, bool &error) {
+TLObject *TLClassStore::TLdeserialize(NativeByteBuffer *stream, uint32_t bytes, uint32_t constructor, int32_t instanceNum, bool &error) { // Use {constructor} as msg type to deserialize
     TLObject *object = nullptr;
     switch (constructor) {
         case TL_msgs_ack::constructor:
