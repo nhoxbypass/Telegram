@@ -7358,7 +7358,9 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                 createUnreadMessageAfterIdLoading = true;
             }
             waitingForLoad.add(lastLoadIndex);
-            getMessagesController().loadMessages(loadIndex == 0 ? dialog_id : mergeDialogId, AndroidUtilities.isTablet() ? 30 : 20, startLoadFromMessageId, 0, true, 0, classGuid, 3, 0, ChatObject.isChannel(currentChat), inScheduleMode, lastLoadIndex++);
+            long dialogId = loadIndex == 0 ? dialog_id : mergeDialogId;
+            int numberMsgToLoad = AndroidUtilities.isTablet() ? 30 : 20;
+            getMessagesController().loadMessages(dialogId, numberMsgToLoad, startLoadFromMessageId, 0, true, 0, classGuid, 3, 0, ChatObject.isChannel(currentChat), inScheduleMode, lastLoadIndex++);
             //emptyViewContainer.setVisibility(View.INVISIBLE);
         } else {
             View child = chatListView.getChildAt(0);

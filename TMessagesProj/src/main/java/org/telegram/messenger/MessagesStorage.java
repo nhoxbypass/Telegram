@@ -10,6 +10,7 @@ package org.telegram.messenger;
 
 import android.content.SharedPreferences;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.LongSparseArray;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
@@ -3896,8 +3897,19 @@ public class MessagesStorage extends BaseController {
         });
     }
 
+    /**
+     * Load msg from DB
+     *
+     * @param dialog_id uid of conversation
+     * @param count number of msg to load
+     * @param max_id max message id
+     */
     public void getMessages(final long dialog_id, final int count, final int max_id, final int offset_date, final int minDate, final int classGuid, final int load_type, final boolean isChannel, final boolean scheduled, final int loadIndex) {
+        Log.e("Genius", "getMessages() STARTTTTT. DialogID=" + dialog_id + ", count=" + count + ", max_ix=" + max_id + ", minDate=" + minDate + ", load_type=" + load_type + ", loadIndex=" + loadIndex);
+
         storageQueue.postRunnable(() -> {
+            long start = System.currentTimeMillis();
+
             TLRPC.TL_messages_messages res = new TLRPC.TL_messages_messages();
             int currentUserId = getUserConfig().clientUserId;
             int count_unread = 0;
@@ -4007,6 +4019,7 @@ public class MessagesStorage extends BaseController {
                     int lower_id = (int) dialog_id;
                     if (lower_id != 0) {
                         if (load_type == 3 && minDate == 0) {
+                            Log.e("Genius", "getMessages(). Load data from `dialogs`");
                             cursor = database.queryFinalized("SELECT inbox_max, unread_count, date, unread_count_i FROM dialogs WHERE did = " + dialog_id);
                             if (cursor.next()) {
                                 min_unread_id = cursor.intValue(0) + 1;
@@ -4017,6 +4030,7 @@ public class MessagesStorage extends BaseController {
                             cursor.dispose();
                         } else if (load_type != 1 && load_type != 3 && load_type != 4 && minDate == 0) {
                             if (load_type == 2) {
+                                Log.e("Genius", "getMessages(). Load data from `dialogs`");
                                 cursor = database.queryFinalized("SELECT inbox_max, unread_count, date, unread_count_i FROM dialogs WHERE did = " + dialog_id);
                                 if (cursor.next()) {
                                     messageMaxId = max_id_query = min_unread_id = cursor.intValue(0);
@@ -4030,6 +4044,7 @@ public class MessagesStorage extends BaseController {
                                 }
                                 cursor.dispose();
                                 if (!queryFromServer) {
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. Not query from server");
                                     cursor = database.queryFinalized(String.format(Locale.US, "SELECT min(mid), max(date) FROM messages WHERE uid = %d AND out = 0 AND read_state IN(0,2) AND mid > 0", dialog_id));
                                     if (cursor.next()) {
                                         min_unread_id = cursor.intValue(0);
@@ -4044,6 +4059,7 @@ public class MessagesStorage extends BaseController {
                                         cursor.dispose();
                                     }
                                 } else if (max_id_query == 0) {
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. max_id_query=0");
                                     int existingUnreadCount = 0;
                                     cursor = database.queryFinalized(String.format(Locale.US, "SELECT COUNT(*) FROM messages WHERE uid = %d AND mid > 0 AND out = 0 AND read_state IN(0,2)", dialog_id));
                                     if (cursor.next()) {
@@ -4061,11 +4077,13 @@ public class MessagesStorage extends BaseController {
                                         cursor.dispose();
                                     }
                                 } else {
+                                    Log.e("Genius", "getMessages(). Load data from `messages_holes`. max_id_query=" + max_id_query);
                                     cursor = database.queryFinalized(String.format(Locale.US, "SELECT start, end FROM messages_holes WHERE uid = %d AND start < %d AND end > %d", dialog_id, max_id_query, max_id_query));
                                     boolean containMessage = !cursor.next();
                                     cursor.dispose();
 
                                     if (containMessage) {
+                                        Log.e("Genius", "getMessages(). Load data from `messages`. max_id_query=" + max_id_query);
                                         cursor = database.queryFinalized(String.format(Locale.US, "SELECT min(mid) FROM messages WHERE uid = %d AND out = 0 AND read_state IN(0,2) AND mid > %d", dialog_id, max_id_query));
                                         if (cursor.next()) {
                                             messageMaxId = max_id_query = cursor.intValue(0);
@@ -4093,11 +4111,13 @@ public class MessagesStorage extends BaseController {
                             }
                         }
 
+                        Log.e("Genius", "getMessages(). Load data from `messages_holes`. AND start IN (0, 1)");
                         cursor = database.queryFinalized(String.format(Locale.US, "SELECT start FROM messages_holes WHERE uid = %d AND start IN (0, 1)", dialog_id));
                         if (cursor.next()) {
                             isEnd = cursor.intValue(0) == 1;
                             cursor.dispose();
                         } else {
+                            Log.e("Genius", "getMessages(). Load data from `messages`. SELECT min(mid)");
                             cursor.dispose();
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT min(mid) FROM messages WHERE uid = %d AND mid > 0", dialog_id));
                             if (cursor.next()) {
@@ -4116,6 +4136,7 @@ public class MessagesStorage extends BaseController {
                         }
 
                         if (load_type == 3 || load_type == 4 || queryFromServer && load_type == 2) {
+                            Log.e("Genius", "getMessages(). Load data from `messages`. SELECT max(mid)");
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT max(mid) FROM messages WHERE uid = %d AND mid > 0", dialog_id));
                             if (cursor.next()) {
                                 last_message_id = cursor.intValue(0);
@@ -4169,6 +4190,7 @@ public class MessagesStorage extends BaseController {
 
                             boolean containMessage = max_id_query != 0;
                             if (containMessage) {
+                                Log.e("Genius", "getMessages(). Load data from `messages_holes`. max_id_query=" + max_id_query);
                                 cursor = database.queryFinalized(String.format(Locale.US, "SELECT start FROM messages_holes WHERE uid = %d AND start < %d AND end > %d", dialog_id, max_id_query, max_id_query));
                                 if (cursor.next()) {
                                     containMessage = false;
@@ -4179,6 +4201,7 @@ public class MessagesStorage extends BaseController {
                             if (containMessage) {
                                 long holeMessageMaxId = 0;
                                 long holeMessageMinId = 1;
+                                Log.e("Genius", "getMessages(). Load data from `messages_holes`. max_id_query=" + max_id_query + " ORDER BY start ASC");
                                 cursor = database.queryFinalized(String.format(Locale.US, "SELECT start FROM messages_holes WHERE uid = %d AND start >= %d ORDER BY start ASC LIMIT 1", dialog_id, max_id_query));
                                 if (cursor.next()) {
                                     holeMessageMaxId = cursor.intValue(0);
@@ -4206,15 +4229,34 @@ public class MessagesStorage extends BaseController {
                                             holeMessageMaxId |= ((long) channelId) << 32;
                                         }
                                     }
-                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT * FROM (SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.mid <= %d AND (m.mid >= %d OR m.mid < 0) ORDER BY m.date DESC, m.mid DESC LIMIT %d) UNION " +
-                                            "SELECT * FROM (SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.mid > %d AND (m.mid <= %d OR m.mid < 0) ORDER BY m.date ASC, m.mid ASC LIMIT %d)", dialog_id, messageMaxId, holeMessageMinId, count_query / 2, dialog_id, messageMaxId, holeMessageMaxId, count_query / 2));
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date, mid) 2 chieu. messageMaxId<=" + messageMaxId + ", holeMessageMinId>=" + holeMessageMinId + ", holeMessageMaxId<=" + holeMessageMaxId +", count_query=" + count_query);
+                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT * FROM " +
+                                            "(SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                            "WHERE m.uid = %d AND m.mid <= %d AND (m.mid >= %d OR m.mid < 0) " +
+                                            "ORDER BY m.date DESC, m.mid DESC LIMIT %d) " +
+                                            "UNION " +
+                                            "SELECT * FROM " +
+                                            "(SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.mid > %d AND (m.mid <= %d OR m.mid < 0) " +
+                                            "ORDER BY m.date ASC, m.mid ASC LIMIT %d)", dialog_id, messageMaxId, holeMessageMinId, count_query / 2, dialog_id, messageMaxId, holeMessageMaxId, count_query / 2));
                                 } else {
-                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT * FROM (SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.mid <= %d ORDER BY m.date DESC, m.mid DESC LIMIT %d) UNION " +
-                                            "SELECT * FROM (SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.mid > %d ORDER BY m.date ASC, m.mid ASC LIMIT %d)", dialog_id, messageMaxId, count_query / 2, dialog_id, messageMaxId, count_query / 2));
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date, mid) 2 chieu. Ko co hole messageMaxId=" + messageMaxId);
+                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT * FROM " +
+                                            "(SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                            "WHERE m.uid = %d AND m.mid <= %d " +
+                                            "ORDER BY m.date DESC, m.mid DESC LIMIT %d) UNION " +
+                                            "SELECT * FROM " +
+                                            "(SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                            "WHERE m.uid = %d AND m.mid > %d" +
+                                            " ORDER BY m.date ASC, m.mid ASC LIMIT %d)", dialog_id, messageMaxId, count_query / 2, dialog_id, messageMaxId, count_query / 2));
                                 }
                             } else {
                                 if (load_type == 2) {
                                     int existingUnreadCount = 0;
+                                    Log.e("Genius", "getMessages(). SELECT COUNT(*) from `messages`");
                                     cursor = database.queryFinalized(String.format(Locale.US, "SELECT COUNT(*) FROM messages WHERE uid = %d AND mid != 0 AND out = 0 AND read_state IN(0,2)", dialog_id));
                                     if (cursor.next()) {
                                         existingUnreadCount = cursor.intValue(0);
@@ -4233,6 +4275,7 @@ public class MessagesStorage extends BaseController {
                             }
                         } else if (load_type == 1) {
                             long holeMessageId = 0;
+                            Log.e("Genius", "getMessages(). Load data from `messages_holes`");
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT start, end FROM messages_holes WHERE uid = %d AND start >= %d AND start != 1 AND end != 1 ORDER BY start ASC LIMIT 1", dialog_id, max_id));
                             if (cursor.next()) {
                                 holeMessageId = cursor.intValue(0);
@@ -4242,13 +4285,22 @@ public class MessagesStorage extends BaseController {
                             }
                             cursor.dispose();
                             if (holeMessageId != 0) {
-                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.date >= %d AND m.mid > %d AND m.mid <= %d ORDER BY m.date ASC, m.mid ASC LIMIT %d", dialog_id, minDate, messageMaxId, holeMessageId, count_query));
+                                Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date,mid) ASC. minDate>=" + minDate + ", messageMaxId>" + messageMaxId + ", holeMessageId<=" + holeMessageId + ", count_query=" + count_query);
+                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                        "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                        "WHERE m.uid = %d AND m.date >= %d AND m.mid > %d AND m.mid <= %d " +
+                                        "ORDER BY m.date ASC, m.mid ASC LIMIT %d", dialog_id, minDate, messageMaxId, holeMessageId, count_query));
                             } else {
-                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.date >= %d AND m.mid > %d ORDER BY m.date ASC, m.mid ASC LIMIT %d", dialog_id, minDate, messageMaxId, count_query));
+                                Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date,mid) ASC. No hole. minDate>=" + minDate + "messageMaxId>" + messageMaxId);
+                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                        "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid" +
+                                        " WHERE m.uid = %d AND m.date >= %d AND m.mid > %d " +
+                                        "ORDER BY m.date ASC, m.mid ASC LIMIT %d", dialog_id, minDate, messageMaxId, count_query));
                             }
                         } else if (minDate != 0) {
                             if (messageMaxId != 0) {
                                 long holeMessageId = 0;
+                                Log.e("Genius", "getMessages(). SELECT end from `messages_holes`. Order by end DESC. max_id=" + max_id);
                                 cursor = database.queryFinalized(String.format(Locale.US, "SELECT end FROM messages_holes WHERE uid = %d AND end <= %d ORDER BY end DESC LIMIT 1", dialog_id, max_id));
                                 if (cursor.next()) {
                                     holeMessageId = cursor.intValue(0);
@@ -4258,14 +4310,27 @@ public class MessagesStorage extends BaseController {
                                 }
                                 cursor.dispose();
                                 if (holeMessageId != 0) {
-                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.date <= %d AND m.mid < %d AND (m.mid >= %d OR m.mid < 0) ORDER BY m.date DESC, m.mid DESC LIMIT %d", dialog_id, minDate, messageMaxId, holeMessageId, count_query));
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date,mid) DESC. minDate<=" + minDate + ", messageMaxId<" + messageMaxId + ", holeMessageId>=" + holeMessageId + ", count_query=" + count_query);
+                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                            "WHERE m.uid = %d AND m.date <= %d AND m.mid < %d AND (m.mid >= %d OR m.mid < 0) " +
+                                            "ORDER BY m.date DESC, m.mid DESC LIMIT %d", dialog_id, minDate, messageMaxId, holeMessageId, count_query));
                                 } else {
-                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.date <= %d AND m.mid < %d ORDER BY m.date DESC, m.mid DESC LIMIT %d", dialog_id, minDate, messageMaxId, count_query));
+                                    Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date,mid) DESC. minDate<=" + minDate + ", messageMaxId<" + messageMaxId + ", No hole, count_query=" + count_query);
+                                    cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                            "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                            "WHERE m.uid = %d AND m.date <= %d AND m.mid < %d " +
+                                            "ORDER BY m.date DESC, m.mid DESC LIMIT %d", dialog_id, minDate, messageMaxId, count_query));
                                 }
                             } else {
-                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND m.date <= %d ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, minDate, offset_query, count_query));
+                                Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date,mid) DESC. minDate<=" + minDate + ", offset_query=" + offset_query + ", count_query=" + count_query);
+                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                        "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                        "WHERE m.uid = %d AND m.date <= %d " +
+                                        "ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, minDate, offset_query, count_query));
                             }
                         } else {
+                            Log.e("Genius", "getMessages(). SELECT max(mid) from `messages`");
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT max(mid) FROM messages WHERE uid = %d AND mid > 0", dialog_id));
                             if (cursor.next()) {
                                 last_message_id = cursor.intValue(0);
@@ -4273,6 +4338,7 @@ public class MessagesStorage extends BaseController {
                             cursor.dispose();
 
                             long holeMessageId = 0;
+                            Log.e("Genius", "getMessages(). SELECT max(end) from `messages_holes`");
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT max(end) FROM messages_holes WHERE uid = %d", dialog_id));
                             if (cursor.next()) {
                                 holeMessageId = cursor.intValue(0);
@@ -4282,14 +4348,23 @@ public class MessagesStorage extends BaseController {
                             }
                             cursor.dispose();
                             if (holeMessageId != 0) {
-                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d AND (m.mid >= %d OR m.mid < 0) ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, holeMessageId, offset_query, count_query));
+                                Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date, mid) DESC. holeMessageId>=" + holeMessageId + ", offset_query=" + offset_query + ", count_query=" + count_query);
+                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                        "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                        "WHERE m.uid = %d AND (m.mid >= %d OR m.mid < 0) " +
+                                        "ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, holeMessageId, offset_query, count_query));
                             } else {
-                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, offset_query, count_query));
+                                Log.e("Genius", "getMessages(). Load data from `messages`. ORDER BY (date, mid) DESC. No hole, offset_query=" + offset_query + ", count_query=" + count_query);
+                                cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention " +
+                                        "FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid " +
+                                        "WHERE m.uid = %d " +
+                                        "ORDER BY m.date DESC, m.mid DESC LIMIT %d,%d", dialog_id, offset_query, count_query));
                             }
                         }
                     } else {
                         isEnd = true;
 
+                        Log.e("Genius", "getMessages(). QWE");
                         if (load_type == 3 && minDate == 0) {
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT min(mid) FROM messages WHERE uid = %d AND mid < 0", dialog_id));
                             if (cursor.next()) {
@@ -4368,6 +4443,9 @@ public class MessagesStorage extends BaseController {
                             cursor = database.queryFinalized(String.format(Locale.US, "SELECT m.read_state, m.data, m.send_state, m.mid, m.date, r.random_id, m.replydata, m.media, m.ttl, m.mention FROM messages as m LEFT JOIN randoms as r ON r.mid = m.mid WHERE m.uid = %d ORDER BY m.mid ASC LIMIT %d,%d", dialog_id, offset_query, count_query));
                         }
                     }
+
+                    Log.e("Genius", "getMessages(). END QUERY");
+
                     int minId = Integer.MAX_VALUE;
                     int maxId = Integer.MIN_VALUE;
                     if (cursor != null) {
@@ -4466,6 +4544,8 @@ public class MessagesStorage extends BaseController {
                         }
                         cursor.dispose();
                     }
+
+                    Log.e("Genius", "getMessages(). SORT GI DO");
 
                     Collections.sort(res.messages, (lhs, rhs) -> {
                         if (lhs.id > 0 && rhs.id > 0) {
@@ -4571,6 +4651,9 @@ public class MessagesStorage extends BaseController {
                         }
                     }
                 }
+
+                Log.e("Genius", "getMessages(). END GAME. Time=" + (System.currentTimeMillis() - start) + " ms");
+
                 if (!usersToLoad.isEmpty()) {
                     getUsersInternal(TextUtils.join(",", usersToLoad), res.users);
                 }
