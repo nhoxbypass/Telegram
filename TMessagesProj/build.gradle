@@ -19,6 +19,8 @@ dependencies {
     implementation 'androidx.palette:palette:1.0.0'
     implementation 'androidx.exifinterface:exifinterface:1.1.0-beta01'
 
+    implementation 'com.facebook.stetho:stetho:1.5.1'
+
     compileOnly 'org.checkerframework:checker-qual:2.5.2'
     compileOnly 'org.checkerframework:checker-compat-qual:2.5.0'
     implementation 'com.google.firebase:firebase-messaging:20.0.0'

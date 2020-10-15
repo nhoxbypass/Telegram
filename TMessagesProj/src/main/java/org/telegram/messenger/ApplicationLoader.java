@@ -26,6 +26,7 @@ import android.os.PowerManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
+import com.facebook.stetho.Stetho;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.firebase.iid.FirebaseInstanceId;
@@ -178,6 +179,8 @@ public class ApplicationLoader extends Application {
         if (applicationContext == null) {
             applicationContext = getApplicationContext();
         }
+
+        Stetho.initializeWithDefaults(this);
 
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
         ConnectionsManager.native_setJava(false);
