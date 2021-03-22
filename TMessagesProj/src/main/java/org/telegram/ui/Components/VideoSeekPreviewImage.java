@@ -76,9 +76,7 @@ public class VideoSeekPreviewImage extends View {
             currentPixel = pixel;
         }
         long time = (long) (duration * progress);
-        int minutes = (int) (time / 60 / 1000);
-        int seconds = (int) (time - minutes * 60 * 1000) / 1000;
-        frameTime = String.format("%d:%02d", minutes, seconds);
+        frameTime = AndroidUtilities.formatShortDuration((int) (time / 1000));
         timeWidth = (int) Math.ceil(textPaint.measureText(frameTime));
         invalidate();
 
@@ -188,10 +186,10 @@ public class VideoSeekPreviewImage extends View {
                 } else {
                     path = FileLoader.getPathToAttach(document, false).getAbsolutePath();
                 }
-                fileDrawable = new AnimatedFileDrawable(new File(path), true, document.size, document, parentObject, currentAccount, true);
+                fileDrawable = new AnimatedFileDrawable(new File(path), true, document.size, document, null, parentObject, 0, currentAccount, true);
             } else {
                 path = uri.getPath();
-                fileDrawable = new AnimatedFileDrawable(new File(path), true, 0, null, null, 0, true);
+                fileDrawable = new AnimatedFileDrawable(new File(path), true, 0, null, null, null, 0, 0, true);
             }
             duration = fileDrawable.getDurationMs();
             if (pendingProgress != 0.0f) {

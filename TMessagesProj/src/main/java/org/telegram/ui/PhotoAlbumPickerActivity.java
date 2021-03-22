@@ -21,6 +21,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.text.InputFilter;
 import android.text.TextPaint;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
@@ -31,12 +32,13 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.ViewTreeObserver;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MessagesController;
@@ -44,11 +46,13 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
+import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
+import org.telegram.ui.ActionBar.ActionBarMenuItem;
 import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -117,6 +121,12 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     private PhotoAlbumPickerActivityDelegate delegate;
 
+    public static int SELECT_TYPE_ALL = 0;
+    public static int SELECT_TYPE_AVATAR = 1;
+    public static int SELECT_TYPE_WALLPAPER = 2;
+    public static int SELECT_TYPE_AVATAR_VIDEO = 3;
+    public static int SELECT_TYPE_QR = 10;
+
     public PhotoAlbumPickerActivity(int selectPhotoType, boolean allowGifs, boolean allowCaption, ChatActivity chatActivity) {
         super();
         this.chatActivity = chatActivity;
@@ -127,14 +137,14 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     @Override
     public boolean onFragmentCreate() {
-        if (selectPhotoType != 0 || !allowSearchImages) {
+        if (selectPhotoType == SELECT_TYPE_AVATAR || selectPhotoType == SELECT_TYPE_WALLPAPER || selectPhotoType == SELECT_TYPE_QR || !allowSearchImages) {
             albumsSorted = MediaController.allPhotoAlbums;
         } else {
             albumsSorted = MediaController.allMediaAlbums;
         }
         loading = albumsSorted == null;
         MediaController.loadGalleryPhotosAlbums(classGuid);
-        NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.albumsDidLoad);
+        NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.albumsDidLoad);
         NotificationCenter.getInstance(currentAccount).addObserver(this, NotificationCenter.closeChats);
         return super.onFragmentCreate();
     }
@@ -144,7 +154,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         if (commentTextView != null) {
             commentTextView.onDestroy();
         }
-        NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.albumsDidLoad);
+        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.albumsDidLoad);
         NotificationCenter.getInstance(currentAccount).removeObserver(this, NotificationCenter.closeChats);
         super.onFragmentDestroy();
     }
@@ -176,7 +186,9 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         if (allowSearchImages) {
             menu.addItem(2, R.drawable.ic_ab_search).setContentDescription(LocaleController.getString("Search", R.string.Search));
         }
-        menu.addItem(1, R.drawable.ic_ab_other).setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
+        ActionBarMenuItem menuItem = menu.addItem(0, R.drawable.ic_ab_other);
+        menuItem.setContentDescription(LocaleController.getString("AccDescrMoreOptions", R.string.AccDescrMoreOptions));
+        menuItem.addSubItem(1, R.drawable.msg_openin, LocaleController.getString("OpenInExternalApp", R.string.OpenInExternalApp));
 
         sizeNotifierFrameLayout = new SizeNotifierFrameLayout(context) {
 
@@ -190,7 +202,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
                 setMeasuredDimension(widthSize, heightSize);
 
-                int keyboardSize = getKeyboardHeight();
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : measureKeyboardHeight();
                 if (keyboardSize <= AndroidUtilities.dp(20)) {
                     if (!AndroidUtilities.isInMultiwindow) {
                         heightSize -= commentTextView.getEmojiPadding();
@@ -234,7 +246,8 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 }
                 final int count = getChildCount();
 
-                int paddingBottom = getKeyboardHeight() <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
+                int keyboardSize = SharedConfig.smoothKeyboard ? 0 : measureKeyboardHeight();
+                int paddingBottom = keyboardSize <= AndroidUtilities.dp(20) && !AndroidUtilities.isInMultiwindow && !AndroidUtilities.isTablet() ? commentTextView.getEmojiPadding() : 0;
                 setBottomClip(paddingBottom);
 
                 for (int i = 0; i < count; i++) {
@@ -288,7 +301,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                         if (AndroidUtilities.isTablet()) {
                             childTop = getMeasuredHeight() - child.getMeasuredHeight();
                         } else {
-                            childTop = getMeasuredHeight() + getKeyboardHeight() - child.getMeasuredHeight();
+                            childTop = getMeasuredHeight() + keyboardSize - child.getMeasuredHeight();
                         }
                     }
                     child.layout(childLeft, childTop, childLeft + width, childTop + height);
@@ -323,7 +336,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
         emptyView = new TextView(context);
         emptyView.setTextColor(0xff808080);
-        emptyView.setTextSize(20);
+        emptyView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
         emptyView.setGravity(Gravity.CENTER);
         emptyView.setVisibility(View.GONE);
         emptyView.setText(LocaleController.getString("NoPhotos", R.string.NoPhotos));
@@ -366,16 +379,51 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             commentTextView.setText(caption);
         }
 
-        writeButtonContainer = new FrameLayout(context);
+        writeButtonContainer = new FrameLayout(context) {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(info);
+                info.setText(LocaleController.formatPluralString("AccDescrSendPhotos", selectedPhotos.size()));
+                info.setClassName(Button.class.getName());
+                info.setLongClickable(true);
+                info.setClickable(true);
+            }
+        };
+        writeButtonContainer.setFocusable(true);
+        writeButtonContainer.setFocusableInTouchMode(true);
         writeButtonContainer.setVisibility(View.INVISIBLE);
         writeButtonContainer.setScaleX(0.2f);
         writeButtonContainer.setScaleY(0.2f);
         writeButtonContainer.setAlpha(0.0f);
-        writeButtonContainer.setContentDescription(LocaleController.getString("Send", R.string.Send));
-        sizeNotifierFrameLayout.addView(writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 6, 10));
-        writeButtonContainer.setOnClickListener(v -> {
+        sizeNotifierFrameLayout.addView(writeButtonContainer, LayoutHelper.createFrame(60, 60, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, 12, 10));
+
+        writeButton = new ImageView(context);
+        writeButtonDrawable = Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(56), Theme.getColor(Theme.key_dialogFloatingButton), Theme.getColor(Build.VERSION.SDK_INT >= 21 ? Theme.key_dialogFloatingButtonPressed : Theme.key_dialogFloatingButton));
+        if (Build.VERSION.SDK_INT < 21) {
+            Drawable shadowDrawable = context.getResources().getDrawable(R.drawable.floating_shadow_profile).mutate();
+            shadowDrawable.setColorFilter(new PorterDuffColorFilter(0xff000000, PorterDuff.Mode.MULTIPLY));
+            CombinedDrawable combinedDrawable = new CombinedDrawable(shadowDrawable, writeButtonDrawable, 0, 0);
+            combinedDrawable.setIconSize(AndroidUtilities.dp(56), AndroidUtilities.dp(56));
+            writeButtonDrawable = combinedDrawable;
+        }
+        writeButton.setBackgroundDrawable(writeButtonDrawable);
+        writeButton.setImageResource(R.drawable.attach_send);
+        writeButton.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        writeButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogFloatingIcon), PorterDuff.Mode.MULTIPLY));
+        writeButton.setScaleType(ImageView.ScaleType.CENTER);
+        if (Build.VERSION.SDK_INT >= 21) {
+            writeButton.setOutlineProvider(new ViewOutlineProvider() {
+                @SuppressLint("NewApi")
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setOval(0, 0, AndroidUtilities.dp(56), AndroidUtilities.dp(56));
+                }
+            });
+        }
+        writeButtonContainer.addView(writeButton, LayoutHelper.createFrame(Build.VERSION.SDK_INT >= 21 ? 56 : 60, Build.VERSION.SDK_INT >= 21 ? 56 : 60, Gravity.LEFT | Gravity.TOP, Build.VERSION.SDK_INT >= 21 ? 2 : 0, 0, 0, 0));
+        writeButton.setOnClickListener(v -> {
             if (chatActivity != null && chatActivity.isInScheduleMode()) {
-                AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), UserObject.isUserSelf(chatActivity.getCurrentUser()), (notify, scheduleDate) -> {
+                AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), chatActivity.getDialogId(), (notify, scheduleDate) -> {
                     sendSelectedPhotos(selectedPhotos, selectedPhotosOrder, notify, scheduleDate);
                     finishFragment();
                 });
@@ -384,15 +432,12 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 finishFragment();
             }
         });
-        writeButtonContainer.setOnLongClickListener(view -> {
+        writeButton.setOnLongClickListener(view -> {
             if (chatActivity == null || maxSelectedPhotos == 1) {
                 return false;
             }
             TLRPC.Chat chat = chatActivity.getCurrentChat();
             TLRPC.User user = chatActivity.getCurrentUser();
-            if (chatActivity.getCurrentEncryptedChat() != null) {
-                return false;
-            }
 
             if (sendPopupLayout == null) {
                 sendPopupLayout = new ActionBarPopupWindow.ActionBarPopupWindowLayout(getParentActivity());
@@ -419,15 +464,15 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                         sendPopupWindow.dismiss();
                     }
                 });
-                sendPopupLayout.setShowedFromBotton(false);
+                sendPopupLayout.setShownFromBotton(false);
 
                 itemCells = new ActionBarMenuSubItem[2];
                 for (int a = 0; a < 2; a++) {
-                    if (a == 1 && UserObject.isUserSelf(user)) {
+                    if (a == 0 && !chatActivity.canScheduleMessage() || a == 1 && UserObject.isUserSelf(user)) {
                         continue;
                     }
                     int num = a;
-                    itemCells[a] = new ActionBarMenuSubItem(getParentActivity());
+                    itemCells[a] = new ActionBarMenuSubItem(getParentActivity(), a == 0, a ==  1);
                     if (num == 0) {
                         if (UserObject.isUserSelf(user)) {
                             itemCells[a].setTextAndIcon(LocaleController.getString("SetReminder", R.string.SetReminder), R.drawable.msg_schedule);
@@ -439,13 +484,13 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                     }
                     itemCells[a].setMinimumWidth(AndroidUtilities.dp(196));
 
-                    sendPopupLayout.addView(itemCells[a], LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT, 0, 48 * a, 0, 0));
+                    sendPopupLayout.addView(itemCells[a], LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48));
                     itemCells[a].setOnClickListener(v -> {
                         if (sendPopupWindow != null && sendPopupWindow.isShowing()) {
                             sendPopupWindow.dismiss();
                         }
                         if (num == 0) {
-                            AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), UserObject.isUserSelf(chatActivity.getCurrentUser()), (notify, scheduleDate) -> {
+                            AlertsCreator.createScheduleDatePickerDialog(getParentActivity(), chatActivity.getDialogId(), (notify, scheduleDate) -> {
                                 sendSelectedPhotos(selectedPhotos, selectedPhotosOrder, notify, scheduleDate);
                                 finishFragment();
                             });
@@ -455,6 +500,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                         }
                     });
                 }
+                sendPopupLayout.setupRadialSelectors(Theme.getColor(Theme.key_dialogButtonSelector));
 
                 sendPopupWindow = new ActionBarPopupWindow(sendPopupLayout, LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT);
                 sendPopupWindow.setAnimationEnabled(false);
@@ -476,30 +522,6 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
             return false;
         });
-
-        writeButton = new ImageView(context);
-        writeButtonDrawable = Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(56), Theme.getColor(Theme.key_dialogFloatingButton), Theme.getColor(Theme.key_dialogFloatingButtonPressed));
-        if (Build.VERSION.SDK_INT < 21) {
-            Drawable shadowDrawable = context.getResources().getDrawable(R.drawable.floating_shadow_profile).mutate();
-            shadowDrawable.setColorFilter(new PorterDuffColorFilter(0xff000000, PorterDuff.Mode.MULTIPLY));
-            CombinedDrawable combinedDrawable = new CombinedDrawable(shadowDrawable, writeButtonDrawable, 0, 0);
-            combinedDrawable.setIconSize(AndroidUtilities.dp(56), AndroidUtilities.dp(56));
-            writeButtonDrawable = combinedDrawable;
-        }
-        writeButton.setBackgroundDrawable(writeButtonDrawable);
-        writeButton.setImageResource(R.drawable.attach_send);
-        writeButton.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogFloatingIcon), PorterDuff.Mode.MULTIPLY));
-        writeButton.setScaleType(ImageView.ScaleType.CENTER);
-        if (Build.VERSION.SDK_INT >= 21) {
-            writeButton.setOutlineProvider(new ViewOutlineProvider() {
-                @SuppressLint("NewApi")
-                @Override
-                public void getOutline(View view, Outline outline) {
-                    outline.setOval(0, 0, AndroidUtilities.dp(56), AndroidUtilities.dp(56));
-                }
-            });
-        }
-        writeButtonContainer.addView(writeButton, LayoutHelper.createFrame(Build.VERSION.SDK_INT >= 21 ? 56 : 60, Build.VERSION.SDK_INT >= 21 ? 56 : 60, Gravity.LEFT | Gravity.TOP, Build.VERSION.SDK_INT >= 21 ? 2 : 0, 0, 0, 0));
 
         textPaint.setTextSize(AndroidUtilities.dp(12));
         textPaint.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
@@ -528,8 +550,8 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         selectedCountView.setAlpha(0.0f);
         selectedCountView.setScaleX(0.2f);
         selectedCountView.setScaleY(0.2f);
-        sizeNotifierFrameLayout.addView(selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -8, 9));
-        if (selectPhotoType != 0) {
+        sizeNotifierFrameLayout.addView(selectedCountView, LayoutHelper.createFrame(42, 24, Gravity.RIGHT | Gravity.BOTTOM, 0, 0, -2, 9));
+        if (selectPhotoType != SELECT_TYPE_ALL) {
             commentTextView.setVisibility(View.GONE);
         }
 
@@ -573,7 +595,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         if (id == NotificationCenter.albumsDidLoad) {
             int guid = (Integer) args[0];
             if (classGuid == guid) {
-                if (selectPhotoType != 0 || !allowSearchImages) {
+                if (selectPhotoType == SELECT_TYPE_AVATAR || selectPhotoType == SELECT_TYPE_WALLPAPER || selectPhotoType == SELECT_TYPE_QR || !allowSearchImages) {
                     albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[2];
                 } else {
                     albumsSorted = (ArrayList<MediaController.AlbumEntry>) args[1];
@@ -592,6 +614,15 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
         } else if (id == NotificationCenter.closeChats) {
             removeSelfFromStack();
         }
+    }
+
+    @Override
+    public boolean onBackPressed() {
+        if (commentTextView != null && commentTextView.isPopupShowing()) {
+            commentTextView.hidePopup(true);
+            return false;
+        }
+        return super.onBackPressed();
     }
 
     public void setMaxSelectedPhotos(int value, boolean order) {
@@ -620,18 +651,17 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             media.add(info);
             if (object instanceof MediaController.PhotoEntry) {
                 MediaController.PhotoEntry photoEntry = (MediaController.PhotoEntry) object;
-                if (photoEntry.isVideo) {
-                    info.path = photoEntry.path;
-                    info.videoEditedInfo = photoEntry.editedInfo;
-                } else if (photoEntry.imagePath != null) {
+                if (photoEntry.imagePath != null) {
                     info.path = photoEntry.imagePath;
-                } else if (photoEntry.path != null) {
+                } else {
                     info.path = photoEntry.path;
                 }
+                info.thumbPath = photoEntry.thumbPath;
+                info.videoEditedInfo = photoEntry.editedInfo;
                 info.isVideo = photoEntry.isVideo;
                 info.caption = photoEntry.caption != null ? photoEntry.caption.toString() : null;
                 info.entities = photoEntry.entities;
-                info.masks = !photoEntry.stickers.isEmpty() ? new ArrayList<>(photoEntry.stickers) : null;
+                info.masks = photoEntry.stickers;
                 info.ttl = photoEntry.ttl;
             } else if (object instanceof MediaController.SearchImage) {
                 MediaController.SearchImage searchImage = (MediaController.SearchImage) object;
@@ -640,10 +670,11 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 } else {
                     info.searchImage = searchImage;
                 }
-
+                info.thumbPath = searchImage.thumbPath;
+                info.videoEditedInfo = searchImage.editedInfo;
                 info.caption = searchImage.caption != null ? searchImage.caption.toString() : null;
                 info.entities = searchImage.entities;
-                info.masks = !searchImage.stickers.isEmpty() ? new ArrayList<>(searchImage.stickers) : null;
+                info.masks = searchImage.stickers;
                 info.ttl = searchImage.ttl;
                 if (searchImage.inlineResult != null && searchImage.type == 1) {
                     info.inlineResult = searchImage.inlineResult;
@@ -744,7 +775,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
 
     private void openPhotoPicker(MediaController.AlbumEntry albumEntry, int type) {
         if (albumEntry != null) {
-            PhotoPickerActivity fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedPhotosOrder, null, selectPhotoType, allowCaption, chatActivity);
+            PhotoPickerActivity fragment = new PhotoPickerActivity(type, albumEntry, selectedPhotos, selectedPhotosOrder, selectPhotoType, allowCaption, chatActivity);
             fragment.setCaption(caption = commentTextView.getText());
             fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                 @Override
@@ -771,7 +802,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
             final HashMap<Object, Object> photos = new HashMap<>();
             final ArrayList<Object> order = new ArrayList<>();
             if (allowGifs) {
-                PhotoPickerSearchActivity fragment = new PhotoPickerSearchActivity(photos, order, null, selectPhotoType, allowCaption, chatActivity);
+                PhotoPickerSearchActivity fragment = new PhotoPickerSearchActivity(photos, order, selectPhotoType, allowCaption, chatActivity);
                 fragment.setCaption(caption = commentTextView.getText());
                 fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                     @Override
@@ -795,7 +826,7 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
                 fragment.setMaxSelectedPhotos(maxSelectedPhotos, allowOrder);
                 presentFragment(fragment);
             } else {
-                PhotoPickerActivity fragment = new PhotoPickerActivity(0, albumEntry, photos, order, null, selectPhotoType, allowCaption, chatActivity);
+                PhotoPickerActivity fragment = new PhotoPickerActivity(0, albumEntry, photos, order, selectPhotoType, allowCaption, chatActivity);
                 fragment.setCaption(caption = commentTextView.getText());
                 fragment.setDelegate(new PhotoPickerActivity.PhotoPickerActivityDelegate() {
                     @Override
@@ -870,19 +901,21 @@ public class PhotoAlbumPickerActivity extends BaseFragment implements Notificati
     }
 
     @Override
-    public ThemeDescription[] getThemeDescriptions() {
-        return new ThemeDescription[]{
-                new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_dialogBackground),
+    public ArrayList<ThemeDescription> getThemeDescriptions() {
+        ArrayList<ThemeDescription> themeDescriptions = new ArrayList<>();
 
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_dialogBackground),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_ITEMSCOLOR, null, null, null, null, Theme.key_dialogTextBlack),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_TITLECOLOR, null, null, null, null, Theme.key_dialogTextBlack),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_dialogButtonSelector),
+        themeDescriptions.add(new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_dialogBackground));
 
-                new ThemeDescription(listView, ThemeDescription.FLAG_LISTGLOWCOLOR, null, null, null, null, Theme.key_dialogBackground),
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_dialogBackground));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_ITEMSCOLOR, null, null, null, null, Theme.key_dialogTextBlack));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_TITLECOLOR, null, null, null, null, Theme.key_dialogTextBlack));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_dialogButtonSelector));
 
-                new ThemeDescription(listView, 0, new Class[]{View.class}, null, new Drawable[]{Theme.chat_attachEmptyDrawable}, null, Theme.key_chat_attachEmptyImage),
-                new ThemeDescription(listView, 0, new Class[]{View.class}, null, null, null, Theme.key_chat_attachPhotoBackground),
-        };
+        themeDescriptions.add(new ThemeDescription(listView, ThemeDescription.FLAG_LISTGLOWCOLOR, null, null, null, null, Theme.key_dialogBackground));
+
+        themeDescriptions.add(new ThemeDescription(listView, 0, new Class[]{View.class}, null, new Drawable[]{Theme.chat_attachEmptyDrawable}, null, Theme.key_chat_attachEmptyImage));
+        themeDescriptions.add(new ThemeDescription(listView, 0, new Class[]{View.class}, null, null, null, Theme.key_chat_attachPhotoBackground));
+
+        return themeDescriptions;
     }
 }

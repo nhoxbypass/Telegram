@@ -14,10 +14,12 @@ import android.text.style.URLSpan;
 import android.view.View;
 
 import org.telegram.messenger.browser.Browser;
+import org.telegram.tgnet.TLObject;
 
 public class URLSpanNoUnderline extends URLSpan {
 
     private TextStyleSpan.TextStyleRun style;
+    private TLObject object;
 
     public URLSpanNoUnderline(String url) {
         this(url, null);
@@ -41,11 +43,20 @@ public class URLSpanNoUnderline extends URLSpan {
 
     @Override
     public void updateDrawState(TextPaint p) {
+        int l = p.linkColor;
+        int c = p.getColor();
         super.updateDrawState(p);
         if (style != null) {
             style.applyStyle(p);
-        } else {
-            p.setUnderlineText(false);
         }
+        p.setUnderlineText(l == c);
+    }
+
+    public void setObject(TLObject spanObject) {
+        this.object = spanObject;
+    }
+
+    public TLObject getObject() {
+        return object;
     }
 }

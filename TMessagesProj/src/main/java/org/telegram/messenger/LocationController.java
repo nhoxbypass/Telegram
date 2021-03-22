@@ -36,6 +36,7 @@ import com.google.android.gms.location.LocationSettingsStatusCodes;
 import org.telegram.SQLite.SQLiteCursor;
 import org.telegram.SQLite.SQLitePreparedStatement;
 import org.telegram.tgnet.NativeByteBuffer;
+import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ public class LocationController extends BaseController implements NotificationCe
     private LongSparseArray<SharingLocationInfo> sharingLocationsMap = new LongSparseArray<>();
     private ArrayList<SharingLocationInfo> sharingLocations = new ArrayList<>();
     public LongSparseArray<ArrayList<TLRPC.Message>> locationsCache = new LongSparseArray<>();
+    private LongSparseArray<Integer> lastReadLocationTime = new LongSparseArray<>();
     private LocationManager locationManager;
     private GpsLocationListener gpsLocationListener = new GpsLocationListener();
     private GpsLocationListener networkLocationListener = new GpsLocationListener();
@@ -61,6 +63,8 @@ public class LocationController extends BaseController implements NotificationCe
     private boolean lastLocationByGoogleMaps;
     private SparseIntArray requests = new SparseIntArray();
     private LongSparseArray<Boolean> cacheRequests = new LongSparseArray<>();
+    private long locationEndWatchTime;
+    private boolean shareMyCurrentLocation;
 
     private boolean lookingForPeopleNearby;
 
@@ -75,6 +79,8 @@ public class LocationController extends BaseController implements NotificationCe
     private final static int BACKGROUD_UPDATE_TIME = 30 * 1000;
     private final static int LOCATION_ACQUIRE_TIME = 10 * 1000;
     private final static int FOREGROUND_UPDATE_TIME = 20 * 1000;
+    private final static int WATCH_LOCATION_TIMEOUT = 65 * 1000;
+    private final static int SEND_NEW_LOCATION_TIME = 2 * 1000;
 
     private ArrayList<TLRPC.TL_peerLocated> cachedNearbyUsers = new ArrayList<>();
     private ArrayList<TLRPC.TL_peerLocated> cachedNearbyChats = new ArrayList<>();
@@ -101,6 +107,9 @@ public class LocationController extends BaseController implements NotificationCe
         public int mid;
         public int stopTime;
         public int period;
+        public int account;
+        public int proximityMeters;
+        public int lastSentProximityMeters;
         public MessageObject messageObject;
     }
 
@@ -114,7 +123,7 @@ public class LocationController extends BaseController implements NotificationCe
             if (lastKnownLocation != null && (this == networkLocationListener || this == passiveLocationListener)) {
                 if (!started && location.distanceTo(lastKnownLocation) > 20) {
                     setLastKnownLocation(location);
-                    lastLocationSendTime = SystemClock.uptimeMillis() - BACKGROUD_UPDATE_TIME + 5000;
+                    lastLocationSendTime = SystemClock.elapsedRealtime() - BACKGROUD_UPDATE_TIME + 5000;
                 }
             } else {
                 setLastKnownLocation(location);
@@ -195,7 +204,7 @@ public class LocationController extends BaseController implements NotificationCe
                     added = true;
                     boolean replaced = false;
                     for (int b = 0; b < messages.size(); b++) {
-                        if (messages.get(b).from_id == messageObject.messageOwner.from_id) {
+                        if (MessageObject.getFromChatId(messages.get(b)) == messageObject.getFromChatId()) {
                             replaced = true;
                             messages.set(b, messageObject.messageOwner);
                             break;
@@ -203,6 +212,11 @@ public class LocationController extends BaseController implements NotificationCe
                     }
                     if (!replaced) {
                         messages.add(messageObject.messageOwner);
+                    }
+                } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionGeoProximityReached) {
+                    int lowerId = (int) messageObject.getDialogId();
+                    if (lowerId > 0) {
+                        setProximityLocation(messageObject.getDialogId(), 0, false);
                     }
                 }
             }
@@ -251,7 +265,7 @@ public class LocationController extends BaseController implements NotificationCe
             for (int a = 0; a < messageObjects.size(); a++) {
                 MessageObject messageObject = messageObjects.get(a);
                 for (int b = 0; b < messages.size(); b++) {
-                    if (messages.get(b).from_id == messageObject.messageOwner.from_id) {
+                    if (MessageObject.getFromChatId(messages.get(b)) == messageObject.getFromChatId()) {
                         if (!messageObject.isLiveLocation()) {
                             messages.remove(b);
                         } else {
@@ -282,7 +296,11 @@ public class LocationController extends BaseController implements NotificationCe
                             startFusedLocationRequest(true);
                             break;
                         case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
-                            AndroidUtilities.runOnUIThread(() -> getNotificationCenter().postNotificationName(NotificationCenter.needShowPlayServicesAlert, status));
+                            Utilities.stageQueue.postRunnable(() -> {
+                                if (lookingForPeopleNearby || !sharingLocations.isEmpty()) {
+                                    AndroidUtilities.runOnUIThread(() -> getNotificationCenter().postNotificationName(NotificationCenter.needShowPlayServicesAlert, status));
+                                }
+                            });
                             break;
                         case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
                             Utilities.stageQueue.postRunnable(() -> {
@@ -310,7 +328,7 @@ public class LocationController extends BaseController implements NotificationCe
             if (!permissionsGranted) {
                 playServicesAvailable = false;
             }
-            if (lookingForPeopleNearby || !sharingLocations.isEmpty()) {
+            if (shareMyCurrentLocation || lookingForPeopleNearby || !sharingLocations.isEmpty()) {
                 if (permissionsGranted) {
                     try {
                         setLastKnownLocation(LocationServices.FusedLocationApi.getLastLocation(googleApiClient));
@@ -351,116 +369,179 @@ public class LocationController extends BaseController implements NotificationCe
         return playServicesAvailable;
     }
 
-    private void broadcastLastKnownLocation() {
+    private void broadcastLastKnownLocation(boolean cancelCurrent) {
         if (lastKnownLocation == null) {
             return;
         }
         if (requests.size() != 0) {
-            for (int a = 0; a < requests.size(); a++) {
-                getConnectionsManager().cancelRequest(requests.keyAt(a), false);
+            if (cancelCurrent) {
+                for (int a = 0; a < requests.size(); a++) {
+                    getConnectionsManager().cancelRequest(requests.keyAt(a), false);
+                }
             }
             requests.clear();
         }
-        int date = getConnectionsManager().getCurrentTime();
-        float[] result = new float[1];
-        for (int a = 0; a < sharingLocations.size(); a++) {
-            final SharingLocationInfo info = sharingLocations.get(a);
-            if (info.messageObject.messageOwner.media != null && info.messageObject.messageOwner.media.geo != null) {
-                int messageDate = info.messageObject.messageOwner.edit_date != 0 ? info.messageObject.messageOwner.edit_date : info.messageObject.messageOwner.date;
-                TLRPC.GeoPoint point = info.messageObject.messageOwner.media.geo;
-                if (Math.abs(date - messageDate) < 10) {
-                    Location.distanceBetween(point.lat, point._long, lastKnownLocation.getLatitude(), lastKnownLocation.getLongitude(), result);
-                    if (result[0] < 1.0f) {
-                        continue;
+        if (!sharingLocations.isEmpty()) {
+            int date = getConnectionsManager().getCurrentTime();
+            float[] result = new float[1];
+            for (int a = 0; a < sharingLocations.size(); a++) {
+                final SharingLocationInfo info = sharingLocations.get(a);
+                if (info.messageObject.messageOwner.media != null && info.messageObject.messageOwner.media.geo != null && info.lastSentProximityMeters == info.proximityMeters) {
+                    int messageDate = info.messageObject.messageOwner.edit_date != 0 ? info.messageObject.messageOwner.edit_date : info.messageObject.messageOwner.date;
+                    TLRPC.GeoPoint point = info.messageObject.messageOwner.media.geo;
+                    if (Math.abs(date - messageDate) < 10) {
+                        Location.distanceBetween(point.lat, point._long, lastKnownLocation.getLatitude(), lastKnownLocation.getLongitude(), result);
+                        if (result[0] < 1.0f) {
+                            continue;
+                        }
                     }
                 }
+                TLRPC.TL_messages_editMessage req = new TLRPC.TL_messages_editMessage();
+                req.peer = getMessagesController().getInputPeer((int) info.did);
+                req.id = info.mid;
+                req.flags |= 16384;
+                req.media = new TLRPC.TL_inputMediaGeoLive();
+                req.media.stopped = false;
+                req.media.geo_point = new TLRPC.TL_inputGeoPoint();
+                req.media.geo_point.lat = AndroidUtilities.fixLocationCoord(lastKnownLocation.getLatitude());
+                req.media.geo_point._long = AndroidUtilities.fixLocationCoord(lastKnownLocation.getLongitude());
+                req.media.geo_point.accuracy_radius = (int) lastKnownLocation.getAccuracy();
+                if (req.media.geo_point.accuracy_radius != 0) {
+                    req.media.geo_point.flags |= 1;
+                }
+                if (info.lastSentProximityMeters != info.proximityMeters) {
+                    req.media.proximity_notification_radius = info.proximityMeters;
+                    req.media.flags |= 8;
+                }
+                req.media.heading = getHeading(lastKnownLocation);
+                req.media.flags |= 4;
+                final int[] reqId = new int[1];
+                reqId[0] = getConnectionsManager().sendRequest(req, (response, error) -> {
+                    if (error != null) {
+                        if (error.text.equals("MESSAGE_ID_INVALID")) {
+                            sharingLocations.remove(info);
+                            sharingLocationsMap.remove(info.did);
+                            saveSharingLocation(info, 1);
+                            requests.delete(reqId[0]);
+                            AndroidUtilities.runOnUIThread(() -> {
+                                sharingLocationsUI.remove(info);
+                                sharingLocationsMapUI.remove(info.did);
+                                if (sharingLocationsUI.isEmpty()) {
+                                    stopService();
+                                }
+                                NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.liveLocationsChanged);
+                            });
+                        }
+                        return;
+                    }
+                    if ((req.flags & 8) != 0) {
+                        info.lastSentProximityMeters = req.media.proximity_notification_radius;
+                    }
+                    TLRPC.Updates updates = (TLRPC.Updates) response;
+                    boolean updated = false;
+                    for (int a1 = 0; a1 < updates.updates.size(); a1++) {
+                        TLRPC.Update update = updates.updates.get(a1);
+                        if (update instanceof TLRPC.TL_updateEditMessage) {
+                            updated = true;
+                            info.messageObject.messageOwner = ((TLRPC.TL_updateEditMessage) update).message;
+                        } else if (update instanceof TLRPC.TL_updateEditChannelMessage) {
+                            updated = true;
+                            info.messageObject.messageOwner = ((TLRPC.TL_updateEditChannelMessage) update).message;
+                        }
+                    }
+                    if (updated) {
+                        saveSharingLocation(info, 0);
+                    }
+                    getMessagesController().processUpdates(updates, false);
+                });
+                requests.put(reqId[0], 0);
             }
-            TLRPC.TL_messages_editMessage req = new TLRPC.TL_messages_editMessage();
-            req.peer = getMessagesController().getInputPeer((int) info.did);
-            req.id = info.mid;
-            req.flags |= 16384;
-            req.media = new TLRPC.TL_inputMediaGeoLive();
-            req.media.stopped = false;
-            req.media.geo_point = new TLRPC.TL_inputGeoPoint();
-            req.media.geo_point.lat = AndroidUtilities.fixLocationCoord(lastKnownLocation.getLatitude());
-            req.media.geo_point._long = AndroidUtilities.fixLocationCoord(lastKnownLocation.getLongitude());
-            final int[] reqId = new int[1];
-            reqId[0] = getConnectionsManager().sendRequest(req, (response, error) -> {
-                if (error != null) {
-                    if (error.text.equals("MESSAGE_ID_INVALID")) {
-                        sharingLocations.remove(info);
-                        sharingLocationsMap.remove(info.did);
-                        saveSharingLocation(info, 1);
-                        requests.delete(reqId[0]);
-                        AndroidUtilities.runOnUIThread(() -> {
-                            sharingLocationsUI.remove(info);
-                            sharingLocationsMapUI.remove(info.did);
-                            if (sharingLocationsUI.isEmpty()) {
-                                stopService();
-                            }
-                            NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.liveLocationsChanged);
-                        });
-                    }
-                    return;
-                }
-                TLRPC.Updates updates = (TLRPC.Updates) response;
-                boolean updated = false;
-                for (int a1 = 0; a1 < updates.updates.size(); a1++) {
-                    TLRPC.Update update = updates.updates.get(a1);
-                    if (update instanceof TLRPC.TL_updateEditMessage) {
-                        updated = true;
-                        info.messageObject.messageOwner = ((TLRPC.TL_updateEditMessage) update).message;
-                    } else if (update instanceof TLRPC.TL_updateEditChannelMessage) {
-                        updated = true;
-                        info.messageObject.messageOwner = ((TLRPC.TL_updateEditChannelMessage) update).message;
-                    }
-                }
-                if (updated) {
-                    saveSharingLocation(info, 0);
-                }
-                getMessagesController().processUpdates(updates, false);
+        }
+        if (shareMyCurrentLocation) {
+            UserConfig userConfig = getUserConfig();
+            userConfig.lastMyLocationShareTime = (int) (System.currentTimeMillis() / 1000);
+            userConfig.saveConfig(false);
+
+            TLRPC.TL_contacts_getLocated req = new TLRPC.TL_contacts_getLocated();
+            req.geo_point = new TLRPC.TL_inputGeoPoint();
+            req.geo_point.lat = lastKnownLocation.getLatitude();
+            req.geo_point._long = lastKnownLocation.getLongitude();
+            req.background = true;
+            getConnectionsManager().sendRequest(req, (response, error) -> {
+
             });
-            requests.put(reqId[0], 0);
         }
         getConnectionsManager().resumeNetworkMaybe();
-        stop(false);
+        if (shouldStopGps() || shareMyCurrentLocation) {
+            shareMyCurrentLocation = false;
+            stop(false);
+        }
     }
 
-    protected void update() {
+    private boolean shouldStopGps() {
+        return SystemClock.elapsedRealtime() > locationEndWatchTime;
+    }
+
+    protected void setNewLocationEndWatchTime() {
         if (sharingLocations.isEmpty()) {
             return;
         }
-        for (int a = 0; a < sharingLocations.size(); a++) {
-            final SharingLocationInfo info = sharingLocations.get(a);
-            int currentTime = getConnectionsManager().getCurrentTime();
-            if (info.stopTime <= currentTime) {
-                sharingLocations.remove(a);
-                sharingLocationsMap.remove(info.did);
-                saveSharingLocation(info, 1);
-                AndroidUtilities.runOnUIThread(() -> {
-                    sharingLocationsUI.remove(info);
-                    sharingLocationsMapUI.remove(info.did);
-                    if (sharingLocationsUI.isEmpty()) {
-                        stopService();
-                    }
-                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.liveLocationsChanged);
-                });
-                a--;
+        locationEndWatchTime = SystemClock.elapsedRealtime() + WATCH_LOCATION_TIMEOUT;
+        start();
+    }
+
+    protected void update() {
+        UserConfig userConfig = getUserConfig();
+        if (ApplicationLoader.isScreenOn && !ApplicationLoader.mainInterfacePaused && !shareMyCurrentLocation &&
+                userConfig.isClientActivated() && userConfig.isConfigLoaded() && userConfig.sharingMyLocationUntil != 0 && Math.abs(System.currentTimeMillis() / 1000 - userConfig.lastMyLocationShareTime) >= 60 * 60) {
+            shareMyCurrentLocation = true;
+        }
+        if (!sharingLocations.isEmpty()) {
+            for (int a = 0; a < sharingLocations.size(); a++) {
+                final SharingLocationInfo info = sharingLocations.get(a);
+                int currentTime = getConnectionsManager().getCurrentTime();
+                if (info.stopTime <= currentTime) {
+                    sharingLocations.remove(a);
+                    sharingLocationsMap.remove(info.did);
+                    saveSharingLocation(info, 1);
+                    AndroidUtilities.runOnUIThread(() -> {
+                        sharingLocationsUI.remove(info);
+                        sharingLocationsMapUI.remove(info.did);
+                        if (sharingLocationsUI.isEmpty()) {
+                            stopService();
+                        }
+                        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.liveLocationsChanged);
+                    });
+                    a--;
+                }
             }
         }
-        if (!started) {
-            if (Math.abs(lastLocationSendTime - SystemClock.uptimeMillis()) > BACKGROUD_UPDATE_TIME) {
-                lastLocationStartTime = SystemClock.uptimeMillis();
-                start();
-            }
-        } else {
-            if (lastLocationByGoogleMaps || Math.abs(lastLocationStartTime - SystemClock.uptimeMillis()) > LOCATION_ACQUIRE_TIME) {
+        if (started) {
+            long newTime = SystemClock.elapsedRealtime();
+            if (lastLocationByGoogleMaps || Math.abs(lastLocationStartTime - newTime) > LOCATION_ACQUIRE_TIME || shouldSendLocationNow()) {
                 lastLocationByGoogleMaps = false;
                 locationSentSinceLastGoogleMapUpdate = true;
-                lastLocationSendTime = SystemClock.uptimeMillis();
-                broadcastLastKnownLocation();
+                boolean cancelAll = (SystemClock.elapsedRealtime() - lastLocationSendTime) > 2 * 1000;
+                lastLocationStartTime = newTime;
+                lastLocationSendTime = SystemClock.elapsedRealtime();
+                broadcastLastKnownLocation(cancelAll);
+            }
+        } else if (!sharingLocations.isEmpty() || shareMyCurrentLocation) {
+            if (shareMyCurrentLocation || Math.abs(lastLocationSendTime - SystemClock.elapsedRealtime()) > BACKGROUD_UPDATE_TIME) {
+                lastLocationStartTime = SystemClock.elapsedRealtime();
+                start();
             }
         }
+    }
+
+    private boolean shouldSendLocationNow() {
+        if (!shouldStopGps()) {
+            return false;
+        }
+        if (Math.abs(lastLocationSendTime - SystemClock.elapsedRealtime()) >= SEND_NEW_LOCATION_TIME) {
+            return true;
+        }
+        return false;
     }
 
     public void cleanup() {
@@ -470,8 +551,10 @@ public class LocationController extends BaseController implements NotificationCe
         cacheRequests.clear();
         cachedNearbyUsers.clear();
         cachedNearbyChats.clear();
+        lastReadLocationTime.clear();
         stopService();
         Utilities.stageQueue.postRunnable(() -> {
+            locationEndWatchTime = 0;
             requests.clear();
             sharingLocationsMap.clear();
             sharingLocations.clear();
@@ -481,6 +564,9 @@ public class LocationController extends BaseController implements NotificationCe
     }
 
     private void setLastKnownLocation(Location location) {
+        if (location != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && (SystemClock.elapsedRealtimeNanos() - location.getElapsedRealtimeNanos()) / 1000000000 > 60 * 5) {
+            return;
+        }
         lastKnownLocation = location;
         if (lastKnownLocation != null) {
             AndroidUtilities.runOnUIThread(() -> NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.newLocationAvailable));
@@ -500,21 +586,23 @@ public class LocationController extends BaseController implements NotificationCe
         return cachedNearbyChats;
     }
 
-    protected void addSharingLocation(long did, int mid, int period, TLRPC.Message message) {
+    protected void addSharingLocation(TLRPC.Message message) {
         final SharingLocationInfo info = new SharingLocationInfo();
-        info.did = did;
-        info.mid = mid;
-        info.period = period;
-        info.messageObject = new MessageObject(currentAccount, message, false);
-        info.stopTime = getConnectionsManager().getCurrentTime() + period;
-        final SharingLocationInfo old = sharingLocationsMap.get(did);
-        sharingLocationsMap.put(did, info);
+        info.did = message.dialog_id;
+        info.mid = message.id;
+        info.period = message.media.period;
+        info.lastSentProximityMeters = info.proximityMeters = message.media.proximity_notification_radius;
+        info.account = currentAccount;
+        info.messageObject = new MessageObject(currentAccount, message, false, false);
+        info.stopTime = getConnectionsManager().getCurrentTime() + info.period;
+        final SharingLocationInfo old = sharingLocationsMap.get(info.did);
+        sharingLocationsMap.put(info.did, info);
         if (old != null) {
             sharingLocations.remove(old);
         }
         sharingLocations.add(info);
         saveSharingLocation(info, 0);
-        lastLocationSendTime = SystemClock.uptimeMillis() - BACKGROUD_UPDATE_TIME + 5000;
+        lastLocationSendTime = SystemClock.elapsedRealtime() - BACKGROUD_UPDATE_TIME + 5000;
         AndroidUtilities.runOnUIThread(() -> {
             if (old != null) {
                 sharingLocationsUI.remove(old);
@@ -534,6 +622,41 @@ public class LocationController extends BaseController implements NotificationCe
         return sharingLocationsMapUI.get(did);
     }
 
+    public boolean setProximityLocation(long did, int meters, boolean broadcast) {
+        SharingLocationInfo info = sharingLocationsMapUI.get(did);
+        if (info != null) {
+            info.proximityMeters = meters;
+        }
+        getMessagesStorage().getStorageQueue().postRunnable(() -> {
+            try {
+                SQLitePreparedStatement state = getMessagesStorage().getDatabase().executeFast("UPDATE sharing_locations SET proximity = ? WHERE uid = ?");
+                state.requery();
+                state.bindInteger(1, meters);
+                state.bindLong(2, did);
+                state.step();
+                state.dispose();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        });
+        if (broadcast) {
+            Utilities.stageQueue.postRunnable(() -> broadcastLastKnownLocation(true));
+        }
+        return info != null;
+    }
+
+    public static int getHeading(Location location) {
+        float val = location.getBearing();
+        if (val > 0 && val < 1.0f) {
+            if (val < 0.5f) {
+                return 360;
+            } else {
+                return 1;
+            }
+        }
+        return (int) val;
+    }
+
     private void loadSharingLocations() {
         getMessagesStorage().getStorageQueue().postRunnable(() -> {
             final ArrayList<SharingLocationInfo> result = new ArrayList<>();
@@ -542,16 +665,18 @@ public class LocationController extends BaseController implements NotificationCe
             try {
                 ArrayList<Integer> usersToLoad = new ArrayList<>();
                 ArrayList<Integer> chatsToLoad = new ArrayList<>();
-                SQLiteCursor cursor = getMessagesStorage().getDatabase().queryFinalized("SELECT uid, mid, date, period, message FROM sharing_locations WHERE 1");
+                SQLiteCursor cursor = getMessagesStorage().getDatabase().queryFinalized("SELECT uid, mid, date, period, message, proximity FROM sharing_locations WHERE 1");
                 while (cursor.next()) {
                     SharingLocationInfo info = new SharingLocationInfo();
                     info.did = cursor.longValue(0);
                     info.mid = cursor.intValue(1);
                     info.stopTime = cursor.intValue(2);
                     info.period = cursor.intValue(3);
+                    info.proximityMeters = cursor.intValue(5);
+                    info.account = currentAccount;
                     NativeByteBuffer data = cursor.byteBufferValue(4);
                     if (data != null) {
-                        info.messageObject = new MessageObject(currentAccount, TLRPC.Message.TLdeserialize(data, data.readInt32(false), false), false);
+                        info.messageObject = new MessageObject(currentAccount, TLRPC.Message.TLdeserialize(data, data.readInt32(false), false), false, false);
                         MessagesStorage.addUsersAndChatsFromMessage(info.messageObject.messageOwner, usersToLoad, chatsToLoad);
                         data.reuse();
                     }
@@ -623,7 +748,7 @@ public class LocationController extends BaseController implements NotificationCe
                     if (info == null) {
                         return;
                     }
-                    SQLitePreparedStatement state = getMessagesStorage().getDatabase().executeFast("REPLACE INTO sharing_locations VALUES(?, ?, ?, ?, ?)");
+                    SQLitePreparedStatement state = getMessagesStorage().getDatabase().executeFast("REPLACE INTO sharing_locations VALUES(?, ?, ?, ?, ?, ?)");
                     state.requery();
 
                     NativeByteBuffer data = new NativeByteBuffer(info.messageObject.messageOwner.getObjectSize());
@@ -634,6 +759,7 @@ public class LocationController extends BaseController implements NotificationCe
                     state.bindInteger(3, info.stopTime);
                     state.bindInteger(4, info.period);
                     state.bindByteBuffer(5, data);
+                    state.bindInteger(6, info.proximityMeters);
 
                     state.step();
                     state.dispose();
@@ -733,10 +859,10 @@ public class LocationController extends BaseController implements NotificationCe
         }
         lastLocationByGoogleMaps = true;
         if (first || lastKnownLocation != null && lastKnownLocation.distanceTo(location) >= 20) {
-            lastLocationSendTime = SystemClock.uptimeMillis() - BACKGROUD_UPDATE_TIME;
+            lastLocationSendTime = SystemClock.elapsedRealtime() - BACKGROUD_UPDATE_TIME;
             locationSentSinceLastGoogleMapUpdate = false;
         } else if (locationSentSinceLastGoogleMapUpdate) {
-            lastLocationSendTime = SystemClock.uptimeMillis() - BACKGROUD_UPDATE_TIME + FOREGROUND_UPDATE_TIME;
+            lastLocationSendTime = SystemClock.elapsedRealtime() - BACKGROUD_UPDATE_TIME + FOREGROUND_UPDATE_TIME;
             locationSentSinceLastGoogleMapUpdate = false;
         }
         setLastKnownLocation(location);
@@ -746,7 +872,7 @@ public class LocationController extends BaseController implements NotificationCe
         if (started) {
             return;
         }
-        lastLocationStartTime = SystemClock.uptimeMillis();
+        lastLocationStartTime = SystemClock.elapsedRealtime();
         started = true;
         boolean ok = false;
         if (checkPlayServices()) {
@@ -787,7 +913,7 @@ public class LocationController extends BaseController implements NotificationCe
     }
 
     private void stop(boolean empty) {
-        if (lookingForPeopleNearby) {
+        if (lookingForPeopleNearby || shareMyCurrentLocation) {
             return;
         }
         started = false;
@@ -851,6 +977,44 @@ public class LocationController extends BaseController implements NotificationCe
         });
     }
 
+    public void markLiveLoactionsAsRead(long dialogId) {
+        int lowerId = (int) dialogId;
+        if (lowerId == 0) {
+            return;
+        }
+        ArrayList<TLRPC.Message> messages = locationsCache.get(dialogId);
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        Integer date = lastReadLocationTime.get(dialogId);
+        int currentDate = (int) (SystemClock.elapsedRealtime() / 1000);
+        if (date != null && date + 60 > currentDate) {
+            return;
+        }
+        lastReadLocationTime.put(dialogId, currentDate);
+        TLObject request;
+        if (lowerId < 0 && ChatObject.isChannel(-lowerId, currentAccount)) {
+            TLRPC.TL_channels_readMessageContents req = new TLRPC.TL_channels_readMessageContents();
+            for (int a = 0, N = messages.size(); a < N; a++) {
+                req.id.add(messages.get(a).id);
+            }
+            req.channel = getMessagesController().getInputChannel(-lowerId);
+            request = req;
+        } else {
+            TLRPC.TL_messages_readMessageContents req = new TLRPC.TL_messages_readMessageContents();
+            for (int a = 0, N = messages.size(); a < N; a++) {
+                req.id.add(messages.get(a).id);
+            }
+            request = req;
+        }
+        getConnectionsManager().sendRequest(request, (response, error) -> {
+            if (response instanceof TLRPC.TL_messages_affectedMessages) {
+                TLRPC.TL_messages_affectedMessages res = (TLRPC.TL_messages_affectedMessages) response;
+                getMessagesController().processNewDifferenceParams(-1, res.pts, -1, res.pts_count);
+            }
+        });
+    }
+
     public static int getLocationsCount() {
         int count = 0;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
@@ -874,9 +1038,7 @@ public class LocationController extends BaseController implements NotificationCe
             callbacks.remove(callback);
         }
         if (location == null) {
-            if (callback != null) {
-                callback.onLocationAddressAvailable(null, null, null);
-            }
+            callback.onLocationAddressAvailable(null, null, null);
             return;
         }
 
@@ -902,7 +1064,7 @@ public class LocationController extends BaseController implements NotificationCe
                     arg = address.getThoroughfare();
                     if (!TextUtils.isEmpty(arg)) {
                         if (nameBuilder.length() > 0) {
-                            nameBuilder.append(", ");
+                            nameBuilder.append(" ");
                         }
                         nameBuilder.append(arg);
                         hasAny = true;
@@ -981,9 +1143,7 @@ public class LocationController extends BaseController implements NotificationCe
             final String displayNameFinal = displayName;
             AndroidUtilities.runOnUIThread(() -> {
                 callbacks.remove(callback);
-                if (callback != null) {
-                    callback.onLocationAddressAvailable(nameFinal, displayNameFinal, location);
-                }
+                callback.onLocationAddressAvailable(nameFinal, displayNameFinal, location);
             });
         }, 300);
         callbacks.put(callback, fetchLocationRunnable);

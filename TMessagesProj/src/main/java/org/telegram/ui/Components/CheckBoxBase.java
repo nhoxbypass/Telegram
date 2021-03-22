@@ -6,6 +6,8 @@ import android.animation.ObjectAnimator;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
@@ -55,13 +57,15 @@ public class CheckBoxBase {
     private boolean useDefaultCheck;
 
     private boolean drawUnchecked = true;
-    private int drawBackgroundAsArc;
+    private int backgroundType;
 
-    private float size = 21;
+    private float size;
 
     private String checkedText;
 
     private ProgressDelegate progressDelegate;
+
+    private Theme.MessageDrawable messageDrawable;
 
     public interface ProgressDelegate {
         void setProgress(float progress);
@@ -138,6 +142,7 @@ public class CheckBoxBase {
         progressDelegate = delegate;
     }
 
+    @Keep
     public float getProgress() {
         return progress;
     }
@@ -150,9 +155,11 @@ public class CheckBoxBase {
         enabled = value;
     }
 
-    public void setDrawBackgroundAsArc(int type) {
-        drawBackgroundAsArc = type;
-        if (type == 4 || type == 5) {
+    public void setBackgroundType(int type) {
+        backgroundType = type;
+        if (type == 12 || type == 13) {
+            backgroundPaint.setStrokeWidth(AndroidUtilities.dp(1));
+        } else if (type == 4 || type == 5) {
             backgroundPaint.setStrokeWidth(AndroidUtilities.dp(1.9f));
             if (type == 5) {
                 checkPaint.setStrokeWidth(AndroidUtilities.dp(1.5f));
@@ -193,6 +200,10 @@ public class CheckBoxBase {
         backgroundColorKey = background;
         background2ColorKey = background2;
         checkColorKey = check;
+    }
+
+    public void setBackgroundDrawable(Theme.MessageDrawable drawable) {
+        messageDrawable = drawable;
     }
 
     public void setUseDefaultCheck(boolean value) {
@@ -242,8 +253,12 @@ public class CheckBoxBase {
         drawBitmap.eraseColor(0);
         float rad = AndroidUtilities.dp(size / 2);
         float outerRad = rad;
-        if (drawBackgroundAsArc != 0) {
-            outerRad -= AndroidUtilities.dp(0.2f);
+        if (backgroundType == 12 || backgroundType == 13) {
+            rad = outerRad = AndroidUtilities.dp(10);
+        } else {
+            if (backgroundType != 0 && backgroundType != 11) {
+                outerRad -= AndroidUtilities.dp(0.2f);
+            }
         }
 
         float roundProgress = progress >= 0.5f ? 1.0f : progress / 0.5f;
@@ -253,22 +268,41 @@ public class CheckBoxBase {
 
         if (backgroundColorKey != null) {
             if (drawUnchecked) {
-                paint.setColor((Theme.getServiceMessageColor() & 0x00ffffff) | 0x28000000);
-                backgroundPaint.setColor(Theme.getColor(checkColorKey));
+                if (backgroundType == 12 || backgroundType == 13) {
+                    paint.setColor(Theme.getColor(backgroundColorKey));
+                    paint.setAlpha((int) (255 * backgroundAlpha));
+                    backgroundPaint.setColor(Theme.getColor(checkColorKey));
+                } else if (backgroundType == 6 || backgroundType == 7) {
+                    paint.setColor(Theme.getColor(background2ColorKey));
+                    backgroundPaint.setColor(Theme.getColor(checkColorKey));
+                } else if (backgroundType == 10) {
+                    backgroundPaint.setColor(Theme.getColor(background2ColorKey));
+                } else {
+                    paint.setColor((Theme.getServiceMessageColor() & 0x00ffffff) | 0x28000000);
+                    backgroundPaint.setColor(Theme.getColor(checkColorKey));
+                }
             } else {
                 backgroundPaint.setColor(AndroidUtilities.getOffsetColor(0x00ffffff, Theme.getColor(background2ColorKey != null ? background2ColorKey : checkColorKey), progress, backgroundAlpha));
             }
         } else {
             if (drawUnchecked) {
                 paint.setColor(Color.argb((int) (25 * backgroundAlpha), 0, 0, 0));
-                backgroundPaint.setColor(AndroidUtilities.getOffsetColor(0xffffffff, Theme.getColor(checkColorKey), progress, backgroundAlpha));
+                if (backgroundType == 8) {
+                    backgroundPaint.setColor(Theme.getColor(background2ColorKey));
+                } else {
+                    backgroundPaint.setColor(AndroidUtilities.getOffsetColor(0xffffffff, Theme.getColor(checkColorKey), progress, backgroundAlpha));
+                }
             } else {
                 backgroundPaint.setColor(AndroidUtilities.getOffsetColor(0x00ffffff, Theme.getColor(background2ColorKey != null ? background2ColorKey : checkColorKey), progress, backgroundAlpha));
             }
         }
 
         if (drawUnchecked) {
-            if (drawBackgroundAsArc == 6 || drawBackgroundAsArc == 7) {
+            if (backgroundType == 12 || backgroundType == 13) {
+                //draw nothing
+            } else if (backgroundType == 8 || backgroundType == 10) {
+                canvas.drawCircle(cx, cy, rad - AndroidUtilities.dp(1.5f), backgroundPaint);
+            } else if (backgroundType == 6 || backgroundType == 7) {
                 canvas.drawCircle(cx, cy, rad - AndroidUtilities.dp(1), paint);
                 canvas.drawCircle(cx, cy, rad - AndroidUtilities.dp(1.5f), backgroundPaint);
             } else {
@@ -276,17 +310,30 @@ public class CheckBoxBase {
             }
         }
         paint.setColor(Theme.getColor(checkColorKey));
-        if (drawBackgroundAsArc != 7) {
-            if (drawBackgroundAsArc == 0) {
+        if (backgroundType != 7 && backgroundType != 8 && backgroundType != 9 && backgroundType != 10) {
+            if (backgroundType == 12 || backgroundType == 13) {
+                backgroundPaint.setStyle(Paint.Style.FILL);
+                if (messageDrawable != null && messageDrawable.hasGradient()) {
+                    LinearGradient shader = messageDrawable.getGradientShader();
+                    Matrix matrix = messageDrawable.getMatrix();
+                    matrix.setTranslate(0, -messageDrawable.getTopY() + bounds.top);
+                    shader.setLocalMatrix(matrix);
+                    backgroundPaint.setShader(shader);
+                } else {
+                    backgroundPaint.setShader(null);
+                }
+                canvas.drawCircle(cx, cy, (rad - AndroidUtilities.dp(1)) * backgroundAlpha, backgroundPaint);
+                backgroundPaint.setStyle(Paint.Style.STROKE);
+            } else if (backgroundType == 0 || backgroundType == 11) {
                 canvas.drawCircle(cx, cy, rad, backgroundPaint);
             } else {
                 rect.set(cx - outerRad, cy - outerRad, cx + outerRad, cy + outerRad);
                 int startAngle;
                 int sweepAngle;
-                if (drawBackgroundAsArc == 6) {
+                if (backgroundType == 6) {
                     startAngle = 0;
                     sweepAngle = (int) (-360 * progress);
-                } else if (drawBackgroundAsArc == 1) {
+                } else if (backgroundType == 1) {
                     startAngle = -90;
                     sweepAngle = (int) (-270 * progress);
                 } else {
@@ -294,7 +341,7 @@ public class CheckBoxBase {
                     sweepAngle = (int) (270 * progress);
                 }
 
-                if (drawBackgroundAsArc == 6) {
+                if (backgroundType == 6) {
                     int color = Theme.getColor(Theme.key_dialogBackground);
                     int alpha = Color.alpha(color);
                     backgroundPaint.setColor(color);
@@ -304,17 +351,17 @@ public class CheckBoxBase {
                     alpha = Color.alpha(color);
                     backgroundPaint.setColor(color);
                     backgroundPaint.setAlpha((int) (alpha * progress));
-                    canvas.drawArc(rect, startAngle, sweepAngle, false, backgroundPaint);
-                } else {
-                    canvas.drawArc(rect, startAngle, sweepAngle, false, backgroundPaint);
                 }
+                canvas.drawArc(rect, startAngle, sweepAngle, false, backgroundPaint);
             }
         }
 
         if (roundProgress > 0) {
             float checkProgress = progress < 0.5f ? 0.0f : (progress - 0.5f) / 0.5f;
 
-            if (drawBackgroundAsArc == 6 || drawBackgroundAsArc == 7 || !drawUnchecked && backgroundColorKey != null) {
+            if (backgroundType == 9) {
+                paint.setColor(Theme.getColor(background2ColorKey));
+            } else if (backgroundType == 11 || backgroundType == 6 || backgroundType == 7 || backgroundType == 10 || !drawUnchecked && backgroundColorKey != null) {
                 paint.setColor(Theme.getColor(backgroundColorKey));
             } else {
                 paint.setColor(Theme.getColor(enabled ? Theme.key_checkbox : Theme.key_checkboxDisabled));
@@ -325,9 +372,14 @@ public class CheckBoxBase {
                 checkPaint.setColor(Theme.getColor(Theme.key_checkboxCheck));
             }
 
-            rad -= AndroidUtilities.dp(0.5f);
-            bitmapCanvas.drawCircle(drawBitmap.getWidth() / 2, drawBitmap.getHeight() / 2, rad, paint);
-            bitmapCanvas.drawCircle(drawBitmap.getWidth() / 2, drawBitmap.getWidth() / 2, rad * (1.0f - roundProgress), eraser);
+            if (backgroundType == 12 || backgroundType == 13) {
+                paint.setAlpha((int) (255 * roundProgress));
+                bitmapCanvas.drawCircle(drawBitmap.getWidth() / 2, drawBitmap.getHeight() / 2, rad * roundProgress, paint);
+            } else {
+                rad -= AndroidUtilities.dp(0.5f);
+                bitmapCanvas.drawCircle(drawBitmap.getWidth() / 2, drawBitmap.getHeight() / 2, rad, paint);
+                bitmapCanvas.drawCircle(drawBitmap.getWidth() / 2, drawBitmap.getHeight() / 2, rad * (1.0f - roundProgress), eraser);
+            }
             canvas.drawBitmap(drawBitmap, cx - drawBitmap.getWidth() / 2, cy - drawBitmap.getHeight() / 2, null);
 
             if (checkProgress != 0) {
@@ -336,19 +388,32 @@ public class CheckBoxBase {
                         textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
                         textPaint.setTypeface(AndroidUtilities.getTypeface("fonts/rmedium.ttf"));
                     }
-                    int color = Theme.getColor(checkColorKey);
-                    int alpha = Color.alpha(color);
-                    textPaint.setColor(color);
-                    textPaint.setTextSize(AndroidUtilities.dp(14));
-                    int w = (int) Math.ceil(textPaint.measureText(checkedText));
+                    final float textSize, y;
+                    switch (checkedText.length()) {
+                        case 0:
+                        case 1:
+                        case 2:
+                            textSize = 14f;
+                            y = 18f;
+                            break;
+                        case 3:
+                            textSize = 10f;
+                            y = 16.5f;
+                            break;
+                        default:
+                            textSize = 8f;
+                            y = 15.75f;
+                    }
+                    textPaint.setTextSize(AndroidUtilities.dp(textSize));
+                    textPaint.setColor(Theme.getColor(checkColorKey));
                     canvas.save();
                     canvas.scale(checkProgress, 1.0f, cx, cy);
-                    canvas.drawText(checkedText, cx - w / 2, AndroidUtilities.dp(18), textPaint);
+                    canvas.drawText(checkedText, cx - textPaint.measureText(checkedText) / 2f, AndroidUtilities.dp(y), textPaint);
                     canvas.restore();
                 } else {
                     path.reset();
 
-                    float scale = drawBackgroundAsArc == 5 ? 0.8f : 1.0f;
+                    float scale = backgroundType == 5 ? 0.8f : 1.0f;
                     float checkSide = AndroidUtilities.dp(9 * scale) * checkProgress;
                     float smallCheckSide = AndroidUtilities.dp(4 * scale) * checkProgress;
                     int x = cx - AndroidUtilities.dp(1.5f);

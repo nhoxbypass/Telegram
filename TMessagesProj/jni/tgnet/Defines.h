@@ -20,16 +20,20 @@
 #define READ_BUFFER_SIZE 1024 * 128
 //#define DEBUG_VERSION
 #define USE_OLD_KEYS
-#define PFS_ENABLED 0
+#define PFS_ENABLED 1
 #define DEFAULT_DATACENTER_ID INT_MAX
 #define DC_UPDATE_TIME 60 * 60
-#define TEMP_AUTH_KEY_EXPIRE_TIME 32 * 60 * 60
+#define TEMP_AUTH_KEY_EXPIRE_TIME 24 * 60 * 60
 #define PROXY_CONNECTIONS_COUNT 4
 #define DOWNLOAD_CONNECTIONS_COUNT 2
 #define UPLOAD_CONNECTIONS_COUNT 4
 #define CONNECTION_BACKGROUND_KEEP_TIME 10000
 #define MAX_ACCOUNT_COUNT 3
 #define USE_DELEGATE_HOST_RESOLVE
+
+#define USE_IPV4_ONLY 0
+#define USE_IPV6_ONLY 1
+#define USE_IPV4_IPV6_RANDOM 2
 
 #define NETWORK_TYPE_MOBILE 0
 #define NETWORK_TYPE_WIFI 1
@@ -44,7 +48,7 @@ class NativeByteBuffer;
 class Handshake;
 class ConnectionSocket;
 
-typedef std::function<void(TLObject *response, TL_error *error, int32_t networkType)> onCompleteFunc;
+typedef std::function<void(TLObject *response, TL_error *error, int32_t networkType, int64_t responseTime)> onCompleteFunc;
 typedef std::function<void()> onQuickAckFunc;
 typedef std::function<void()> onWriteToSocketFunc;
 typedef std::function<void(int64_t messageId)> fillParamsFunc;

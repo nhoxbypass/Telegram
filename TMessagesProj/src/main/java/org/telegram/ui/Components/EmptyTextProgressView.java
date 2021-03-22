@@ -26,37 +26,47 @@ import org.telegram.ui.ActionBar.Theme;
 public class EmptyTextProgressView extends FrameLayout {
 
     private TextView textView;
-    private RadialProgressView progressBar;
+    private View progressView;
     private boolean inLayout;
-    private boolean showAtCenter;
+    private int showAtPos;
 
     public EmptyTextProgressView(Context context) {
+        this(context, null);
+    }
+
+    public EmptyTextProgressView(Context context, View progressView) {
         super(context);
 
-        progressBar = new RadialProgressView(context);
-        progressBar.setVisibility(INVISIBLE);
-        addView(progressBar, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        if (progressView == null) {
+            progressView = new RadialProgressView(context);
+            addView(progressView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        } else {
+            addView(progressView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        }
+        this.progressView = progressView;
 
         textView = new TextView(context);
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 20);
         textView.setTextColor(Theme.getColor(Theme.key_emptyListPlaceholder));
         textView.setGravity(Gravity.CENTER);
-        textView.setVisibility(INVISIBLE);
         textView.setPadding(AndroidUtilities.dp(20), 0, AndroidUtilities.dp(20), 0);
         textView.setText(LocaleController.getString("NoResult", R.string.NoResult));
         addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+
+        progressView.setAlpha(0f);
+        textView.setAlpha(0f);
 
         setOnTouchListener((v, event) -> true);
     }
 
     public void showProgress() {
-        textView.setVisibility(INVISIBLE);
-        progressBar.setVisibility(VISIBLE);
+        textView.animate().alpha(0f).setDuration(150).start();
+        progressView.animate().alpha(1f).setDuration(150).start();
     }
 
     public void showTextView() {
-        textView.setVisibility(VISIBLE);
-        progressBar.setVisibility(INVISIBLE);
+        textView.animate().alpha(1f).setDuration(150).start();
+        progressView.animate().alpha(0f).setDuration(150).start();
     }
 
     public void setText(String text) {
@@ -68,7 +78,9 @@ public class EmptyTextProgressView extends FrameLayout {
     }
 
     public void setProgressBarColor(int color) {
-        progressBar.setProgressColor(color);
+        if (progressView instanceof RadialProgressView) {
+            ((RadialProgressView) progressView).setProgressColor(color);
+        }
     }
 
     public void setTopImage(int resId) {
@@ -89,7 +101,11 @@ public class EmptyTextProgressView extends FrameLayout {
     }
 
     public void setShowAtCenter(boolean value) {
-        showAtCenter = value;
+        showAtPos = value ? 1 : 0;
+    }
+
+    public void setShowAtTop(boolean value) {
+        showAtPos = value ? 2 : 0;
     }
 
     @Override
@@ -107,7 +123,9 @@ public class EmptyTextProgressView extends FrameLayout {
 
             int x = (width - child.getMeasuredWidth()) / 2;
             int y;
-            if (showAtCenter) {
+            if (showAtPos == 2) {
+                y = (AndroidUtilities.dp(100) - child.getMeasuredHeight()) / 2 + getPaddingTop();
+            } else if (showAtPos == 1) {
                 y = (height / 2 - child.getMeasuredHeight()) / 2 + getPaddingTop();
             } else {
                 y = (height - child.getMeasuredHeight()) / 2 + getPaddingTop();

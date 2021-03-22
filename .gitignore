@@ -3,6 +3,6 @@
 build/
 obj/
 *.iml
-gradle.properties
+local.properties
 TMessagesProj/.externalNativeBuild
 TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java

@@ -571,6 +571,11 @@ public class ThemeEditorView {
                             startColorChange(true);
                             int color = getColor();
                             for (int a = 0; a < currentThemeDesription.size(); a++) {
+                                ThemeDescription description = currentThemeDesription.get(a);
+                                String key = description.getCurrentKey();
+                                if (a == 0 && key.equals(Theme.key_chat_wallpaper) || key.equals(Theme.key_chat_wallpaper_gradient_to) || key.equals(Theme.key_windowBackgroundWhite) || key.equals(Theme.key_windowBackgroundGray)) {
+                                    color = 0xff000000 | color;
+                                }
                                 currentThemeDesription.get(a).setColor(color, false);
                             }
                             int red = Color.red(color);
@@ -630,8 +635,8 @@ public class ThemeEditorView {
             }
         }
 
-        public EditorAlert(final Context context, ThemeDescription[] items) {
-            super(context, true, 1);
+        public EditorAlert(final Context context, ArrayList<ThemeDescription> items) {
+            super(context, true);
 
             shadowDrawable = context.getResources().getDrawable(R.drawable.sheet_shadow_round).mutate();
 
@@ -1065,6 +1070,7 @@ public class ThemeEditorView {
             }
         }
 
+        @Keep
         public int getScrollOffsetY() {
             return scrollOffsetY;
         }
@@ -1281,11 +1287,11 @@ public class ThemeEditorView {
             private int currentCount;
             private ArrayList<ArrayList<ThemeDescription>> items = new ArrayList<>();
 
-            public ListAdapter(Context context, ThemeDescription[] descriptions) {
+            public ListAdapter(Context context, ArrayList<ThemeDescription> descriptions) {
                 this.context = context;
                 HashMap<String, ArrayList<ThemeDescription>> itemsMap = new HashMap<>();
-                for (int a = 0; a < descriptions.length; a++) {
-                    ThemeDescription description = descriptions[a];
+                for (int a = 0, N = descriptions.size(); a < N; a++) {
+                    ThemeDescription description = descriptions.get(a);
                     String key = description.getCurrentKey();
                     ArrayList<ThemeDescription> arrayList = itemsMap.get(key);
                     if (arrayList == null) {
@@ -1294,6 +1300,11 @@ public class ThemeEditorView {
                         items.add(arrayList);
                     }
                     arrayList.add(description);
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !itemsMap.containsKey(Theme.key_windowBackgroundGray)) {
+                    final ArrayList<ThemeDescription> arrayList = new ArrayList<>();
+                    arrayList.add(new ThemeDescription(null, 0, null, null, null, null, Theme.key_windowBackgroundGray));
+                    items.add(arrayList);
                 }
             }
 
@@ -1416,7 +1427,7 @@ public class ThemeEditorView {
                                     fragment = null;
                                 }
                                 if (fragment != null) {
-                                    ThemeDescription[] items = fragment.getThemeDescriptions();
+                                    ArrayList<ThemeDescription> items = fragment.getThemeDescriptions();
                                     if (items != null) {
                                         editorAlert = new EditorAlert(parentActivity, items);
                                         editorAlert.setOnDismissListener(dialog -> {
@@ -1472,7 +1483,6 @@ public class ThemeEditorView {
                 return true;
             }
         };
-        windowView.setBackgroundResource(R.drawable.theme_picker);
         windowManager = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
 
         preferences = ApplicationLoader.applicationContext.getSharedPreferences("themeconfig", Context.MODE_PRIVATE);
@@ -1521,10 +1531,11 @@ public class ThemeEditorView {
     }
 
     private void showWithAnimation() {
+        windowView.setBackgroundResource(R.drawable.theme_picker);
         AnimatorSet animatorSet = new AnimatorSet();
         animatorSet.playTogether(ObjectAnimator.ofFloat(windowView, View.ALPHA, 0.0f, 1.0f),
-                ObjectAnimator.ofFloat(windowView, "scaleX", 0.0f, 1.0f),
-                ObjectAnimator.ofFloat(windowView, "scaleY", 0.0f, 1.0f));
+                ObjectAnimator.ofFloat(windowView, View.SCALE_X, 0.0f, 1.0f),
+                ObjectAnimator.ofFloat(windowView, View.SCALE_Y, 0.0f, 1.0f));
         animatorSet.setInterpolator(decelerateInterpolator);
         animatorSet.setDuration(150);
         animatorSet.start();
@@ -1558,14 +1569,15 @@ public class ThemeEditorView {
         try {
             AnimatorSet animatorSet = new AnimatorSet();
             animatorSet.playTogether(ObjectAnimator.ofFloat(windowView, View.ALPHA, 1.0f, 0.0f),
-                    ObjectAnimator.ofFloat(windowView, "scaleX", 1.0f, 0.0f),
-                    ObjectAnimator.ofFloat(windowView, "scaleY", 1.0f, 0.0f));
+                    ObjectAnimator.ofFloat(windowView, View.SCALE_X, 1.0f, 0.0f),
+                    ObjectAnimator.ofFloat(windowView, View.SCALE_Y, 1.0f, 0.0f));
             animatorSet.setInterpolator(decelerateInterpolator);
             animatorSet.setDuration(150);
             animatorSet.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationEnd(Animator animation) {
                     if (windowView != null) {
+                        windowView.setBackground(null);
                         windowManager.removeView(windowView);
                     }
                 }
@@ -1703,10 +1715,12 @@ public class ThemeEditorView {
         }
     }
 
+    @Keep
     public int getX() {
         return windowLayoutParams.x;
     }
 
+    @Keep
     public int getY() {
         return windowLayoutParams.y;
     }

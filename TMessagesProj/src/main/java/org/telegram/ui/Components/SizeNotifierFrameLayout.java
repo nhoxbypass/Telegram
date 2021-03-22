@@ -22,12 +22,15 @@ import android.widget.FrameLayout;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.ActionBar.ActionBarLayout;
+import org.telegram.ui.ActionBar.AdjustPanLayoutHelper;
+import org.telegram.ui.ActionBar.Theme;
 
 public class SizeNotifierFrameLayout extends FrameLayout {
 
     private Rect rect = new Rect();
     private Drawable backgroundDrawable;
-    private int keyboardHeight;
+    protected int keyboardHeight;
     private int bottomClip;
     private SizeNotifierFrameLayoutDelegate delegate;
     private boolean occupyStatusBar = true;
@@ -35,15 +38,25 @@ public class SizeNotifierFrameLayout extends FrameLayout {
     private float translationX;
     private float translationY;
     private float parallaxScale = 1.0f;
+    private int backgroundTranslationY;
     private boolean paused = true;
+    private Drawable oldBackgroundDrawable;
+    private ActionBarLayout parentLayout;
+    protected AdjustPanLayoutHelper adjustPanLayoutHelper;
 
     public interface SizeNotifierFrameLayoutDelegate {
         void onSizeChanged(int keyboardHeight, boolean isWidthGreater);
     }
 
     public SizeNotifierFrameLayout(Context context) {
+        this(context, null);
+    }
+
+    public SizeNotifierFrameLayout(Context context, ActionBarLayout layout) {
         super(context);
         setWillNotDraw(false);
+        parentLayout = layout;
+        adjustPanLayoutHelper = createAdjustPanLayoutHelper();
     }
 
     public void setBackgroundImage(Drawable bitmap, boolean motion) {
@@ -105,14 +118,18 @@ public class SizeNotifierFrameLayout extends FrameLayout {
         notifyHeightChanged();
     }
 
-    public int getKeyboardHeight() {
+    public int measureKeyboardHeight() {
         View rootView = getRootView();
         getWindowVisibleDisplayFrame(rect);
         if (rect.bottom == 0 && rect.top == 0) {
             return 0;
         }
         int usableViewHeight = rootView.getHeight() - (rect.top != 0 ? AndroidUtilities.statusBarHeight : 0) - AndroidUtilities.getViewInset(rootView);
-        return Math.max(0, usableViewHeight - (rect.bottom - rect.top));
+        return keyboardHeight = Math.max(0, usableViewHeight - (rect.bottom - rect.top));
+    }
+
+    public int getKeyboardHeight() {
+        return keyboardHeight;
     }
 
     public void notifyHeightChanged() {
@@ -120,7 +137,7 @@ public class SizeNotifierFrameLayout extends FrameLayout {
             parallaxScale = parallaxEffect.getScale(getMeasuredWidth(), getMeasuredHeight());
         }
         if (delegate != null) {
-            keyboardHeight = getKeyboardHeight();
+            keyboardHeight = measureKeyboardHeight();
             final boolean isWidthGreater = AndroidUtilities.displaySize.x > AndroidUtilities.displaySize.y;
             post(() -> {
                 if (delegate != null) {
@@ -134,52 +151,97 @@ public class SizeNotifierFrameLayout extends FrameLayout {
         bottomClip = value;
     }
 
+    public void setBackgroundTranslation(int translation) {
+        backgroundTranslationY = translation;
+    }
+
+    public int getHeightWithKeyboard() {
+        return keyboardHeight + getMeasuredHeight();
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
-        if (backgroundDrawable != null) {
-            if (backgroundDrawable instanceof ColorDrawable || backgroundDrawable instanceof GradientDrawable) {
+        if (backgroundDrawable == null) {
+            super.onDraw(canvas);
+            return;
+        }
+        //int kbHeight = SharedConfig.smoothKeyboard ? 0 : keyboardHeight;
+        Drawable newDrawable = Theme.getCachedWallpaperNonBlocking();
+        if (newDrawable != backgroundDrawable && newDrawable != null) {
+            if (Theme.isAnimatingColor()) {
+                oldBackgroundDrawable = backgroundDrawable;
+            }
+            backgroundDrawable = newDrawable;
+        }
+        float themeAnimationValue = parentLayout != null ? parentLayout.getThemeAnimationValue() : 1.0f;
+        for (int a = 0; a < 2; a++) {
+            Drawable drawable = a == 0 ? oldBackgroundDrawable : backgroundDrawable;
+            if (drawable == null) {
+                continue;
+            }
+            if (a == 1 && oldBackgroundDrawable != null && parentLayout != null) {
+                drawable.setAlpha((int) (255 * themeAnimationValue));
+            } else {
+                drawable.setAlpha(255);
+            }
+            if (drawable instanceof ColorDrawable) {
                 if (bottomClip != 0) {
                     canvas.save();
                     canvas.clipRect(0, 0, getMeasuredWidth(), getMeasuredHeight() - bottomClip);
                 }
-                backgroundDrawable.setBounds(0, 0, getMeasuredWidth(), getMeasuredHeight());
-                backgroundDrawable.draw(canvas);
+                drawable.setBounds(0, 0, getMeasuredWidth(), getRootView().getMeasuredHeight());
+                drawable.draw(canvas);
                 if (bottomClip != 0) {
                     canvas.restore();
                 }
-            } else if (backgroundDrawable instanceof BitmapDrawable) {
-                BitmapDrawable bitmapDrawable = (BitmapDrawable) backgroundDrawable;
+            } else if (drawable instanceof GradientDrawable) {
+                if (bottomClip != 0) {
+                    canvas.save();
+                    canvas.clipRect(0, 0, getMeasuredWidth(), getRootView().getMeasuredHeight() - bottomClip);
+                }
+                drawable.setBounds(0, backgroundTranslationY, getMeasuredWidth(), backgroundTranslationY + getRootView().getMeasuredHeight());
+                drawable.draw(canvas);
+                if (bottomClip != 0) {
+                    canvas.restore();
+                }
+            } else if (drawable instanceof BitmapDrawable) {
+                BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
                 if (bitmapDrawable.getTileModeX() == Shader.TileMode.REPEAT) {
                     canvas.save();
                     float scale = 2.0f / AndroidUtilities.density;
                     canvas.scale(scale, scale);
-                    backgroundDrawable.setBounds(0, 0, (int) Math.ceil(getMeasuredWidth() / scale), (int) Math.ceil(getMeasuredHeight() / scale));
-                    backgroundDrawable.draw(canvas);
+                    drawable.setBounds(0, 0, (int) Math.ceil(getMeasuredWidth() / scale), (int) Math.ceil(getRootView().getMeasuredHeight() / scale));
+                    drawable.draw(canvas);
                     canvas.restore();
                 } else {
                     int actionBarHeight = (isActionBarVisible() ? ActionBar.getCurrentActionBarHeight() : 0) + (Build.VERSION.SDK_INT >= 21 && occupyStatusBar ? AndroidUtilities.statusBarHeight : 0);
-                    int viewHeight = getMeasuredHeight() - actionBarHeight;
-                    float scaleX = (float) getMeasuredWidth() / (float) backgroundDrawable.getIntrinsicWidth();
-                    float scaleY = (float) (viewHeight + keyboardHeight) / (float) backgroundDrawable.getIntrinsicHeight();
-                    float scale = scaleX < scaleY ? scaleY : scaleX;
-                    int width = (int) Math.ceil(backgroundDrawable.getIntrinsicWidth() * scale * parallaxScale);
-                    int height = (int) Math.ceil(backgroundDrawable.getIntrinsicHeight() * scale * parallaxScale);
+                    int viewHeight = getRootView().getMeasuredHeight() - actionBarHeight;
+                    float scaleX = (float) getMeasuredWidth() / (float) drawable.getIntrinsicWidth();
+                    float scaleY = (float) (viewHeight) / (float) drawable.getIntrinsicHeight();
+                    float scale = Math.max(scaleX, scaleY);
+                    int width = (int) Math.ceil(drawable.getIntrinsicWidth() * scale * parallaxScale);
+                    int height = (int) Math.ceil(drawable.getIntrinsicHeight() * scale * parallaxScale);
                     int x = (getMeasuredWidth() - width) / 2 + (int) translationX;
-                    int y = (viewHeight - height + keyboardHeight) / 2 + actionBarHeight + (int) translationY;
+                    int y = backgroundTranslationY + (viewHeight - height) / 2 + actionBarHeight + (int) translationY;
                     canvas.save();
                     canvas.clipRect(0, actionBarHeight, width, getMeasuredHeight() - bottomClip);
-                    backgroundDrawable.setAlpha(255);
-                    backgroundDrawable.setBounds(x, y, x + width, y + height);
-                    backgroundDrawable.draw(canvas);
+                    drawable.setBounds(x, y, x + width, y + height);
+                    drawable.draw(canvas);
                     canvas.restore();
                 }
             }
-        } else {
-            super.onDraw(canvas);
+            if (a == 0 && oldBackgroundDrawable != null && themeAnimationValue >= 1.0f) {
+                oldBackgroundDrawable = null;
+                invalidate();
+            }
         }
     }
 
     protected boolean isActionBarVisible() {
         return true;
+    }
+
+    protected AdjustPanLayoutHelper createAdjustPanLayoutHelper() {
+        return null;
     }
 }

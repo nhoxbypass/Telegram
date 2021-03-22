@@ -7,7 +7,7 @@ import android.animation.ObjectAnimator;
 import android.content.Context;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
-import android.os.Build;
+import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -20,13 +20,17 @@ import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.R;
-import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.ChatMessageCell;
 
 
 @SuppressWarnings("FieldCanBeLocal")
 public class HintView extends FrameLayout {
+
+    public static final int TYPE_SEARCH_AS_LIST = 3;
+    public static final int TYPE_POLL_VOTE = 5;
 
     private TextView textView;
     private ImageView imageView;
@@ -38,6 +42,12 @@ public class HintView extends FrameLayout {
     private int currentType;
     private boolean isTopArrow;
     private String overrideText;
+    private int shownY;
+    private float translationY;
+    private float extraTranslationY;
+
+    private int bottomOffset;
+    private long showingDuration = 2000;
 
     public HintView(Context context, int type) {
         this(context, type, false);
@@ -53,15 +63,32 @@ public class HintView extends FrameLayout {
         textView.setTextColor(Theme.getColor(Theme.key_chat_gifSaveHintText));
         textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
         textView.setMaxLines(2);
-        textView.setMaxWidth(AndroidUtilities.dp(250));
-        textView.setGravity(Gravity.LEFT | Gravity.TOP);
-        textView.setBackgroundDrawable(Theme.createRoundRectDrawable(AndroidUtilities.dp(3), Theme.getColor(Theme.key_chat_gifSaveHintBackground)));
-        if (currentType == 2) {
-            textView.setPadding(AndroidUtilities.dp(7), AndroidUtilities.dp(6), AndroidUtilities.dp(7), AndroidUtilities.dp(7));
+        if (type == 7 || type == 8 || type == 9) {
+            textView.setMaxWidth(AndroidUtilities.dp(310));
+        } else if (type == 4) {
+            textView.setMaxWidth(AndroidUtilities.dp(280));
         } else {
-            textView.setPadding(AndroidUtilities.dp(currentType == 0 ? 54 : 5), AndroidUtilities.dp(6), AndroidUtilities.dp(5), AndroidUtilities.dp(7));
+            textView.setMaxWidth(AndroidUtilities.dp(250));
         }
-        addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, topArrow ? 6 : 0, 0, topArrow ? 0 : 6));
+        if (currentType == TYPE_SEARCH_AS_LIST) {
+            textView.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+            textView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(5), Theme.getColor(Theme.key_chat_gifSaveHintBackground)));
+            textView.setPadding(AndroidUtilities.dp(10), 0, AndroidUtilities.dp(10), 0);
+            addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 30, Gravity.LEFT | Gravity.TOP, 0, topArrow ? 6 : 0, 0, topArrow ? 0 : 6));
+        } else {
+            textView.setGravity(Gravity.LEFT | Gravity.TOP);
+            textView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(currentType == 7 || currentType == 8 || currentType == 9 ? 6 : 3), Theme.getColor(Theme.key_chat_gifSaveHintBackground)));
+            if (currentType == TYPE_POLL_VOTE || currentType == 4) {
+                textView.setPadding(AndroidUtilities.dp(9), AndroidUtilities.dp(6), AndroidUtilities.dp(9), AndroidUtilities.dp(7));
+            } else if (currentType == 2) {
+                textView.setPadding(AndroidUtilities.dp(7), AndroidUtilities.dp(6), AndroidUtilities.dp(7), AndroidUtilities.dp(7));
+            } else if (currentType == 7 || currentType == 8 || currentType == 9) {
+                textView.setPadding(AndroidUtilities.dp(8), AndroidUtilities.dp(7), AndroidUtilities.dp(8), AndroidUtilities.dp(8));
+            } else {
+                textView.setPadding(AndroidUtilities.dp(currentType == 0 ? 54 : 5), AndroidUtilities.dp(6), AndroidUtilities.dp(5), AndroidUtilities.dp(7));
+            }
+            addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, topArrow ? 6 : 0, 0, topArrow ? 0 : 6));
+        }
 
         if (type == 0) {
             textView.setText(LocaleController.getString("AutoplayVideoInfo", R.string.AutoplayVideoInfo));
@@ -79,6 +106,12 @@ public class HintView extends FrameLayout {
         addView(arrowImageView, LayoutHelper.createFrame(14, 6, Gravity.LEFT | (topArrow ? Gravity.TOP : Gravity.BOTTOM), 0, 0, 0, 0));
     }
 
+    public void setBackgroundColor(int background, int text) {
+        textView.setTextColor(text);
+        arrowImageView.setColorFilter(new PorterDuffColorFilter(background, PorterDuff.Mode.MULTIPLY));
+        textView.setBackground(Theme.createRoundRectDrawable(AndroidUtilities.dp(currentType == 7 || currentType == 8 ? 6 : 3), background));
+    }
+
     public void setOverrideText(String text) {
         overrideText = text;
         textView.setText(text);
@@ -89,27 +122,69 @@ public class HintView extends FrameLayout {
         }
     }
 
+    public void setExtraTranslationY(float value) {
+        extraTranslationY = value;
+        setTranslationY(extraTranslationY + translationY);
+    }
+
+    public float getBaseTranslationY() {
+        return translationY;
+    }
+
     public boolean showForMessageCell(ChatMessageCell cell, boolean animated) {
-        if (currentType == 0 && getTag() != null || messageCell == cell) {
+        return showForMessageCell(cell, null, 0, 0, animated);
+    }
+
+    public boolean showForMessageCell(ChatMessageCell cell, Object object, int x, int y, boolean animated) {
+        if (currentType == TYPE_POLL_VOTE && y == shownY && messageCell == cell || currentType != TYPE_POLL_VOTE && (currentType == 0 && getTag() != null || messageCell == cell)) {
             return false;
         }
         if (hideRunnable != null) {
             AndroidUtilities.cancelRunOnUIThread(hideRunnable);
             hideRunnable = null;
         }
-        int top = cell.getTop();
-        int centerX;
+        int[] position = new int[2];
+        cell.getLocationInWindow(position);
+        int top = position[1];
+        View p = (View) getParent();
+        p.getLocationInWindow(position);
+        top -= position[1];
+
         View parentView = (View) cell.getParent();
+        int centerX;
         if (currentType == 0) {
             ImageReceiver imageReceiver = cell.getPhotoImage();
             top += imageReceiver.getImageY();
-            int height = imageReceiver.getImageHeight();
+            int height = (int) imageReceiver.getImageHeight();
             int bottom = top + height;
             int parentHeight = parentView.getMeasuredHeight();
             if (top <= getMeasuredHeight() + AndroidUtilities.dp(10) || bottom > parentHeight + height / 4) {
                 return false;
             }
             centerX = cell.getNoSoundIconCenterX();
+        } else if (currentType == TYPE_POLL_VOTE) {
+            Integer count = (Integer) object;
+            centerX = x;
+            top += y;
+            shownY = y;
+            if (count == -1) {
+                textView.setText(LocaleController.getString("PollSelectOption", R.string.PollSelectOption));
+            } else {
+                if (cell.getMessageObject().isQuiz()) {
+                    if (count == 0) {
+                        textView.setText(LocaleController.getString("NoVotesQuiz", R.string.NoVotesQuiz));
+                    } else {
+                        textView.setText(LocaleController.formatPluralString("Answer", count));
+                    }
+                } else {
+                    if (count == 0) {
+                        textView.setText(LocaleController.getString("NoVotes", R.string.NoVotes));
+                    } else {
+                        textView.setText(LocaleController.formatPluralString("Vote", count));
+                    }
+                }
+            }
+            measure(MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST));
         } else {
             MessageObject messageObject = cell.getMessageObject();
             if (overrideText == null) {
@@ -119,9 +194,14 @@ public class HintView extends FrameLayout {
             }
             measure(MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST));
 
-            top += AndroidUtilities.dp(22);
-            if (!messageObject.isOutOwner() && cell.isDrawNameLayout()) {
-                top += AndroidUtilities.dp(20);
+            TLRPC.User user = cell.getCurrentUser();
+            if (user != null && user.id == 0) {
+                top += (cell.getMeasuredHeight() - Math.max(0, cell.getBottom() - parentView.getMeasuredHeight()) - AndroidUtilities.dp(50));
+            } else {
+                top += AndroidUtilities.dp(22);
+                if (!messageObject.isOutOwner() && cell.isDrawNameLayout()) {
+                    top += AndroidUtilities.dp(20);
+                }
             }
             if (!isTopArrow && top <= getMeasuredHeight() + AndroidUtilities.dp(10)) {
                 return false;
@@ -131,13 +211,17 @@ public class HintView extends FrameLayout {
 
         int parentWidth = parentView.getMeasuredWidth();
         if (isTopArrow) {
-            setTranslationY(AndroidUtilities.dp(44));
+            setTranslationY(extraTranslationY + (translationY = AndroidUtilities.dp(44)));
         } else {
-            setTranslationY(top - getMeasuredHeight());
+            setTranslationY(extraTranslationY + (translationY = top - getMeasuredHeight()));
         }
         int iconX = cell.getLeft() + centerX;
         int left = AndroidUtilities.dp(19);
-        if (iconX > parentView.getMeasuredWidth() / 2) {
+        if (currentType == TYPE_POLL_VOTE) {
+            int offset = Math.max(0, centerX - getMeasuredWidth() / 2 - AndroidUtilities.dp(19.1f));
+            setTranslationX(offset);
+            left += offset;
+        } else if (iconX > parentView.getMeasuredWidth() / 2) {
             int offset = parentWidth - getMeasuredWidth() - AndroidUtilities.dp(38);
             setTranslationX(offset);
             left += offset;
@@ -175,7 +259,7 @@ public class HintView extends FrameLayout {
         if (animated) {
             animatorSet = new AnimatorSet();
             animatorSet.playTogether(
-                    ObjectAnimator.ofFloat(this, "alpha", 0.0f, 1.0f)
+                    ObjectAnimator.ofFloat(this, View.ALPHA, 0.0f, 1.0f)
             );
             animatorSet.addListener(new AnimatorListenerAdapter() {
                 @Override
@@ -195,48 +279,121 @@ public class HintView extends FrameLayout {
 
     public boolean showForView(View view, boolean animated) {
         if (currentView == view || getTag() != null) {
+            if (getTag() != null) {
+                updatePosition(view);
+            }
             return false;
         }
         if (hideRunnable != null) {
             AndroidUtilities.cancelRunOnUIThread(hideRunnable);
             hideRunnable = null;
         }
-        measure(MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(1000, MeasureSpec.AT_MOST));
+        updatePosition(view);
+
+        currentView = view;
+        if (animatorSet != null) {
+            animatorSet.cancel();
+            animatorSet = null;
+        }
+
+        setTag(1);
+        setVisibility(VISIBLE);
+        if (animated) {
+            animatorSet = new AnimatorSet();
+            animatorSet.playTogether(
+                    ObjectAnimator.ofFloat(this, View.ALPHA, 0.0f, 1.0f)
+            );
+            animatorSet.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    animatorSet = null;
+                    AndroidUtilities.runOnUIThread(hideRunnable = () -> hide(), showingDuration);
+                }
+            });
+            animatorSet.setDuration(300);
+            animatorSet.start();
+        } else {
+            setAlpha(1.0f);
+        }
+
+        return true;
+    }
+
+    private void updatePosition(View view) {
+        measure(MeasureSpec.makeMeasureSpec(AndroidUtilities.displaySize.x, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(AndroidUtilities.displaySize.x, MeasureSpec.AT_MOST));
 
         int[] position = new int[2];
         view.getLocationInWindow(position);
 
-        int centerX = position[0] + view.getMeasuredWidth() / 2;
         int top = position[1] - AndroidUtilities.dp(4);
+
+        if (currentType == 4) {
+            top += AndroidUtilities.dp(4);
+        } else if (currentType == 6) {
+            top += view.getMeasuredHeight() + getMeasuredHeight() + AndroidUtilities.dp(10);
+        } else if (currentType == 7 || currentType == 8) {
+            top += view.getMeasuredHeight() + getMeasuredHeight() + AndroidUtilities.dp(8);
+        }
+
+        int centerX;
+        if (currentType == 8) {
+            if (view instanceof SimpleTextView) {
+                SimpleTextView textView = (SimpleTextView) view;
+                Drawable drawable = textView.getRightDrawable();
+                centerX = position[0] + (drawable != null ? drawable.getBounds().centerX() : textView.getTextWidth() / 2) - AndroidUtilities.dp(8);
+            } else if (view instanceof TextView) {
+                TextView textView = (TextView) view;
+                centerX = position[0] + textView.getMeasuredWidth() - AndroidUtilities.dp(16.5f);
+            } else {
+                centerX = position[0];
+            }
+        } else if (currentType == TYPE_SEARCH_AS_LIST) {
+            centerX = position[0];
+        } else {
+            centerX = position[0] + view.getMeasuredWidth() / 2;
+        }
 
         View parentView = (View) getParent();
         parentView.getLocationInWindow(position);
         centerX -= position[0];
         top -= position[1];
 
-        if (Build.VERSION.SDK_INT >= 21) {
-            top -= AndroidUtilities.statusBarHeight;
-        }
-
+        top -= bottomOffset;
 
         int parentWidth = parentView.getMeasuredWidth();
-        if (isTopArrow) {
-            setTranslationY(AndroidUtilities.dp(44));
+        if (isTopArrow && currentType != 6 && currentType != 7 && currentType != 8) {
+            setTranslationY(extraTranslationY + (translationY = AndroidUtilities.dp(44)));
         } else {
-            setTranslationY(top - getMeasuredHeight() - ActionBar.getCurrentActionBarHeight());
+            setTranslationY(extraTranslationY + (translationY = top - getMeasuredHeight()));
         }
-        int iconX = centerX;
-        int left = AndroidUtilities.dp(19);
-        if (iconX > parentView.getMeasuredWidth() / 2) {
-            int offset = parentWidth - getMeasuredWidth() - AndroidUtilities.dp(28);
-            setTranslationX(offset);
-            left += offset;
+        final int offset;
+
+        int leftMargin = 0;
+        int rightMargin = 0;
+        if (getLayoutParams() instanceof MarginLayoutParams) {
+            leftMargin = ((MarginLayoutParams) getLayoutParams()).leftMargin;
+            rightMargin = ((MarginLayoutParams) getLayoutParams()).rightMargin;
+        }
+        if (centerX > parentView.getMeasuredWidth() / 2) {
+            if (currentType == TYPE_SEARCH_AS_LIST) {
+                offset = (int) (parentWidth - getMeasuredWidth() * 1.5f);
+            } else {
+                offset = parentWidth - getMeasuredWidth() - (leftMargin + rightMargin);
+            }
         } else {
-            setTranslationX(0);
+            if (currentType == TYPE_SEARCH_AS_LIST) {
+                offset = centerX - getMeasuredWidth() / 2 - arrowImageView.getMeasuredWidth();
+            } else {
+                offset = 0;
+            }
         }
-        float arrowX = centerX - left - arrowImageView.getMeasuredWidth() / 2;
+        setTranslationX(offset);
+        float arrowX = centerX - (leftMargin + offset) - arrowImageView.getMeasuredWidth() / 2;
+        if (currentType == 7) {
+            arrowX += AndroidUtilities.dp(2);
+        }
         arrowImageView.setTranslationX(arrowX);
-        if (iconX > parentView.getMeasuredWidth() / 2) {
+        if (centerX > parentView.getMeasuredWidth() / 2) {
             if (arrowX < AndroidUtilities.dp(10)) {
                 float diff = arrowX - AndroidUtilities.dp(10);
                 setTranslationX(getTranslationX() + diff);
@@ -253,34 +410,6 @@ public class HintView extends FrameLayout {
                 arrowImageView.setTranslationX(arrowX - diff);
             }
         }
-
-        currentView = view;
-        if (animatorSet != null) {
-            animatorSet.cancel();
-            animatorSet = null;
-        }
-
-        setTag(1);
-        setVisibility(VISIBLE);
-        if (animated) {
-            animatorSet = new AnimatorSet();
-            animatorSet.playTogether(
-                    ObjectAnimator.ofFloat(this, "alpha", 0.0f, 1.0f)
-            );
-            animatorSet.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    animatorSet = null;
-                    AndroidUtilities.runOnUIThread(hideRunnable = () -> hide(), 2000);
-                }
-            });
-            animatorSet.setDuration(300);
-            animatorSet.start();
-        } else {
-            setAlpha(1.0f);
-        }
-
-        return true;
     }
 
     public void hide() {
@@ -298,7 +427,7 @@ public class HintView extends FrameLayout {
         }
         animatorSet = new AnimatorSet();
         animatorSet.playTogether(
-                ObjectAnimator.ofFloat(this, "alpha", 0.0f)
+                ObjectAnimator.ofFloat(this, View.ALPHA, 0.0f)
         );
         animatorSet.addListener(new AnimatorListenerAdapter() {
             @Override
@@ -319,5 +448,13 @@ public class HintView extends FrameLayout {
 
     public ChatMessageCell getMessageCell() {
         return messageCell;
+    }
+
+    public void setShowingDuration(long showingDuration) {
+        this.showingDuration = showingDuration;
+    }
+
+    public void setBottomOffset(int offset) {
+        this.bottomOffset = offset;
     }
 }

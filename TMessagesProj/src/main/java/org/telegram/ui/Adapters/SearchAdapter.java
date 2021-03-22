@@ -11,7 +11,7 @@ package org.telegram.ui.Adapters;
 import android.content.Context;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
+import android.text.TextUtils;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
@@ -20,6 +20,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.messenger.ContactsController;
@@ -32,10 +33,10 @@ import org.telegram.ui.Cells.GraySectionCell;
 import org.telegram.ui.Cells.ProfileSearchCell;
 import org.telegram.ui.Cells.TextCell;
 import org.telegram.ui.Cells.UserCell;
+import org.telegram.ui.Components.ForegroundColorSpanThemable;
 import org.telegram.ui.Components.RecyclerListView;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -55,10 +56,15 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
     private boolean onlyMutual;
     private boolean allowChats;
     private boolean allowBots;
+    private boolean allowSelf;
     private boolean allowPhoneNumbers;
     private int channelId;
+    private boolean searchInProgress;
+    private int searchReqId;
+    private int searchPointer;
 
-    public SearchAdapter(Context context, SparseArray<TLRPC.User> arg1, boolean usernameSearch, boolean mutual, boolean chats, boolean bots, boolean phones, int searchChannelId) {
+
+    public SearchAdapter(Context context, SparseArray<TLRPC.User> arg1, boolean usernameSearch, boolean mutual, boolean chats, boolean bots, boolean self, boolean phones, int searchChannelId) {
         mContext = context;
         ignoreUsers = arg1;
         onlyMutual = mutual;
@@ -66,17 +72,16 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
         allowChats = chats;
         allowBots = bots;
         channelId = searchChannelId;
+        allowSelf = self;
         allowPhoneNumbers = phones;
         searchAdapterHelper = new SearchAdapterHelper(true);
         searchAdapterHelper.setDelegate(new SearchAdapterHelper.SearchAdapterHelperDelegate() {
             @Override
-            public void onDataSetChanged() {
+            public void onDataSetChanged(int searchId) {
                 notifyDataSetChanged();
-            }
-
-            @Override
-            public void onSetHashtags(ArrayList<SearchAdapterHelper.HashtagObject> arrayList, HashMap<String, SearchAdapterHelper.HashtagObject> hashMap) {
-
+                if (searchId != 0) {
+                    onSearchProgressChanged();
+                }
             }
 
             @Override
@@ -102,14 +107,13 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
         } catch (Exception e) {
             FileLog.e(e);
         }
-        if (query == null) {
-            searchResult.clear();
-            searchResultNames.clear();
-            if (allowUsernameSearch) {
-                searchAdapterHelper.queryServerSearch(null, true, allowChats, allowBots, true, channelId, allowPhoneNumbers, 0);
-            }
-            notifyDataSetChanged();
-        } else {
+        searchResult.clear();
+        searchResultNames.clear();
+        if (allowUsernameSearch) {
+            searchAdapterHelper.queryServerSearch(null, true, allowChats, allowBots, allowSelf, false, channelId, allowPhoneNumbers, 0, 0);
+        }
+        notifyDataSetChanged();
+        if (!TextUtils.isEmpty(query)) {
             searchTimer = new Timer();
             searchTimer.schedule(new TimerTask() {
                 @Override
@@ -129,14 +133,17 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
     private void processSearch(final String query) {
         AndroidUtilities.runOnUIThread(() -> {
             if (allowUsernameSearch) {
-                searchAdapterHelper.queryServerSearch(query, true, allowChats, allowBots, true, channelId, allowPhoneNumbers, -1);
+                searchAdapterHelper.queryServerSearch(query, true, allowChats, allowBots, allowSelf, false, channelId, allowPhoneNumbers, -1, 1);
             }
             final int currentAccount = UserConfig.selectedAccount;
             final ArrayList<TLRPC.TL_contact> contactsCopy = new ArrayList<>(ContactsController.getInstance(currentAccount).contacts);
+            searchInProgress = true;
+            searchReqId = searchPointer++;
+            int searchReqIdFinal = searchReqId;
             Utilities.searchQueue.postRunnable(() -> {
                 String search1 = query.trim().toLowerCase();
                 if (search1.length() == 0) {
-                    updateSearchResults(new ArrayList<>(), new ArrayList<>());
+                    updateSearchResults(searchReqIdFinal, new ArrayList<>(), new ArrayList<>());
                     return;
                 }
                 String search2 = LocaleController.getInstance().getTranslitString(search1);
@@ -155,24 +162,34 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                 for (int a = 0; a < contactsCopy.size(); a++) {
                     TLRPC.TL_contact contact = contactsCopy.get(a);
                     TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(contact.user_id);
-                    if (user.id == UserConfig.getInstance(currentAccount).getClientUserId() || onlyMutual && !user.mutual_contact || ignoreUsers != null && ignoreUsers.indexOfKey(contact.user_id) >= 0) {
+                    if (!allowSelf && user.self || onlyMutual && !user.mutual_contact || ignoreUsers != null && ignoreUsers.indexOfKey(contact.user_id) >= 0) {
                         continue;
                     }
 
-                    String name = ContactsController.formatName(user.first_name, user.last_name).toLowerCase();
-                    String tName = LocaleController.getInstance().getTranslitString(name);
-                    if (name.equals(tName)) {
-                        tName = null;
+                    final String[] names = new String[3];
+                    names[0] = ContactsController.formatName(user.first_name, user.last_name).toLowerCase();
+                    names[1] = LocaleController.getInstance().getTranslitString(names[0]);
+                    if (names[0].equals(names[1])) {
+                        names[1] = null;
+                    }
+                    if (UserObject.isReplyUser(user)) {
+                        names[2] = LocaleController.getString("RepliesTitle", R.string.RepliesTitle).toLowerCase();
+                    } else if (user.self) {
+                        names[2] = LocaleController.getString("SavedMessages", R.string.SavedMessages).toLowerCase();
                     }
 
                     int found = 0;
                     for (String q : search) {
-                        if (name.startsWith(q) || name.contains(" " + q) || tName != null && (tName.startsWith(q) || tName.contains(" " + q))) {
-                            found = 1;
-                        } else if (user.username != null && user.username.startsWith(q)) {
+                        for (int i = 0; i < names.length; i++) {
+                            final String name = names[i];
+                            if (name != null && (name.startsWith(q) || name.contains(" " + q))) {
+                                found = 1;
+                                break;
+                            }
+                        }
+                        if (found == 0 && user.username != null && user.username.startsWith(q)) {
                             found = 2;
                         }
-
                         if (found != 0) {
                             if (found == 1) {
                                 resultArrayNames.add(AndroidUtilities.generateSearchName(user.first_name, user.last_name, q));
@@ -184,19 +201,30 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                         }
                     }
                 }
-
-                updateSearchResults(resultArray, resultArrayNames);
+                updateSearchResults(searchReqIdFinal, resultArray, resultArrayNames);
             });
         });
     }
 
-    private void updateSearchResults(final ArrayList<TLObject> users, final ArrayList<CharSequence> names) {
+    private void updateSearchResults(int searchReqIdFinal, final ArrayList<TLObject> users, final ArrayList<CharSequence> names) {
         AndroidUtilities.runOnUIThread(() -> {
-            searchResult = users;
-            searchResultNames = names;
-            searchAdapterHelper.mergeResults(users);
-            notifyDataSetChanged();
+            if (searchReqIdFinal == searchReqId) {
+                searchResult = users;
+                searchResultNames = names;
+                searchAdapterHelper.mergeResults(users);
+                searchInProgress = false;
+                notifyDataSetChanged();
+                onSearchProgressChanged();
+            }
         });
+    }
+
+    protected void onSearchProgressChanged() {
+
+    }
+
+    public boolean searchInProgress() {
+        return searchInProgress || searchAdapterHelper.isSearchInProgress();
     }
 
     @Override
@@ -272,7 +300,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                 break;
             case 2:
             default:
-                view = new TextCell(mContext, 16);
+                view = new TextCell(mContext, 16, false);
                 break;
         }
         return new RecyclerListView.Holder(view);
@@ -286,9 +314,11 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                 if (object != null) {
                     int id = 0;
                     String un = null;
+                    boolean self = false;
                     if (object instanceof TLRPC.User) {
                         un = ((TLRPC.User) object).username;
                         id = ((TLRPC.User) object).id;
+                        self = ((TLRPC.User) object).self;
                     } else if (object instanceof TLRPC.Chat) {
                         un = ((TLRPC.Chat) object).username;
                         id = ((TLRPC.Chat) object).id;
@@ -306,7 +336,7 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                         }
                     } else if (position > searchResult.size() && un != null) {
                         String foundUserName = searchAdapterHelper.getLastFoundUsername();
-                        if (foundUserName.startsWith("@")) {
+                        if (foundUserName != null && foundUserName.startsWith("@")) {
                             foundUserName = foundUserName.substring(1);
                         }
                         try {
@@ -314,14 +344,14 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                             SpannableStringBuilder spannableStringBuilder = new SpannableStringBuilder();
                             spannableStringBuilder.append("@");
                             spannableStringBuilder.append(un);
-                            if ((index = AndroidUtilities.indexOfIgnoreCase(un, foundUserName)) != -1) {
+                            if (foundUserName != null && (index = AndroidUtilities.indexOfIgnoreCase(un, foundUserName)) != -1) {
                                 int len = foundUserName.length();
                                 if (index == 0) {
                                     len++;
                                 } else {
                                     index++;
                                 }
-                                spannableStringBuilder.setSpan(new ForegroundColorSpan(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText4)), index, index + len, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                spannableStringBuilder.setSpan(new ForegroundColorSpanThemable(Theme.key_windowBackgroundWhiteBlueText4), index, index + len, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                             }
                             username = spannableStringBuilder;
                         } catch (Exception e) {
@@ -338,7 +368,10 @@ public class SearchAdapter extends RecyclerListView.SelectionAdapter {
                         }
                     } else {
                         ProfileSearchCell profileSearchCell = (ProfileSearchCell) holder.itemView;
-                        profileSearchCell.setData(object, null, name, username, false, false);
+                        if (self) {
+                            name = LocaleController.getString("SavedMessages", R.string.SavedMessages);
+                        }
+                        profileSearchCell.setData(object, null, name, username, false, self);
                         profileSearchCell.useSeparator = (position != getItemCount() - 1 && position != searchResult.size() - 1);
                         /*if (ignoreUsers != null) {
                             if (ignoreUsers.containsKey(id)) {

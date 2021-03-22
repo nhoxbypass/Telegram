@@ -45,12 +45,13 @@ public:
     int64_t getCurrentTimeMillis();
     int64_t getCurrentTimeMonotonicMillis();
     int32_t getCurrentTime();
+    uint32_t getCurrentDatacenterId();
     bool isTestBackend();
     int32_t getTimeDifference();
     int32_t sendRequest(TLObject *object, onCompleteFunc onComplete, onQuickAckFunc onQuickAck, uint32_t flags, uint32_t datacenterId, ConnectionType connetionType, bool immediate);
     int32_t sendRequest(TLObject *object, onCompleteFunc onComplete, onQuickAckFunc onQuickAck, uint32_t flags, uint32_t datacenterId, ConnectionType connetionType, bool immediate, int32_t requestToken);
     void cancelRequest(int32_t token, bool notifyServer);
-    void cleanUp(bool resetKeys);
+    void cleanUp(bool resetKeys, int32_t datacenterId);
     void cancelRequestsForGuid(int32_t guid);
     void bindRequestToGuid(int32_t requestToken, int32_t guid);
     void applyDatacenterAddress(uint32_t datacenterId, std::string ipAddress, uint32_t port);
@@ -61,8 +62,8 @@ public:
     void resumeNetwork(bool partial);
     void pauseNetwork();
     void setNetworkAvailable(bool value, int32_t type, bool slow);
-    void setUseIpv6(bool value);
-    void init(uint32_t version, int32_t layer, int32_t apiId, std::string deviceModel, std::string systemVersion, std::string appVersion, std::string langCode, std::string systemLangCode, std::string configPath, std::string logPath, std::string regId, int32_t userId, bool isPaused, bool enablePushConnection, bool hasNetwork, int32_t networkType);
+    void setIpStrategy(uint8_t value);
+    void init(uint32_t version, int32_t layer, int32_t apiId, std::string deviceModel, std::string systemVersion, std::string appVersion, std::string langCode, std::string systemLangCode, std::string configPath, std::string logPath, std::string regId, std::string cFingerprint, std::string installerId, int32_t timezoneOffset, int32_t userId, bool isPaused, bool enablePushConnection, bool hasNetwork, int32_t networkType);
     void setProxySettings(std::string address, uint16_t port, std::string username, std::string password, std::string secret);
     void setLangCode(std::string langCode);
     void setRegId(std::string regId);
@@ -92,7 +93,7 @@ private:
     void sendPing(Datacenter *datacenter, bool usePushConnection);
     void sendMessagesToConnection(std::vector<std::unique_ptr<NetworkMessage>> &messages, Connection *connection, bool reportAck);
     void sendMessagesToConnectionWithConfirmation(std::vector<std::unique_ptr<NetworkMessage>> &messages, Connection *connection, bool reportAck);
-    void requestSaltsForDatacenter(Datacenter *datacenter, bool useTempConnection);
+    void requestSaltsForDatacenter(Datacenter *datacenter, bool media, bool useTempConnection);
     void clearRequestsForDatacenter(Datacenter *datacenter, HandshakeType type);
     void registerForInternalPushUpdates();
     void processRequestQueue(uint32_t connectionType, uint32_t datacenterId);
@@ -122,14 +123,14 @@ private:
     void onDatacenterHandshakeComplete(Datacenter *datacenter, HandshakeType type, int32_t timeDiff);
     void onDatacenterExportAuthorizationComplete(Datacenter *datacenter);
     int64_t generateMessageId();
-    bool isIpv6Enabled();
+    uint8_t getIpStratagy();
     bool isNetworkAvailable();
 
     void scheduleCheckProxyInternal(ProxyCheckInfo *proxyCheckInfo);
     void checkProxyInternal(ProxyCheckInfo *proxyCheckInfo);
 
     int32_t instanceNum = 0;
-    uint32_t configVersion = 4;
+    uint32_t configVersion = 5;
     Config *config = nullptr;
 
     std::list<EventObject *> events;
@@ -161,6 +162,8 @@ private:
     bool networkPaused = false;
     int32_t nextSleepTimeout = CONNECTION_BACKGROUND_KEEP_TIME;
     int64_t lastPauseTime = 0;
+    int64_t lastMonotonicPauseTime = 0;
+    int32_t lastSystemPauseTime = 0;
     ConnectionState connectionState = ConnectionStateConnecting;
     std::unique_ptr<ByteArray> movingAuthorization;
     std::vector<int64_t> sessionsToDestroy;
@@ -189,11 +192,14 @@ private:
     int64_t lastOutgoingMessageId = 0;
     bool networkAvailable = true;
     bool networkSlow = false;
-    bool ipv6Enabled = false;
+    uint8_t ipStrategy = USE_IPV4_ONLY;
+    bool lastProtocolIsIpv6 = false;
+    bool lastProtocolUsefullData = false;
     std::vector<ConnectionSocket *> activeConnections;
+    std::vector<ConnectionSocket *> activeConnectionsCopy;
     int epolFd;
     int eventFd;
-    int *pipeFd;
+    int *pipeFd = nullptr;
     NativeByteBuffer *networkBuffer;
 
     requestsList requestsQueue;
@@ -210,6 +216,9 @@ private:
     std::string currentAppVersion;
     std::string currentLangCode;
     std::string currentRegId;
+    std::string certFingerprint;
+    std::string installer;
+    int32_t currentDeviceTimezone = 0;
     std::string currentSystemLangCode;
     std::string currentConfigPath;
     std::string currentLogPath;

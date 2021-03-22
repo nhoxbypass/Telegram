@@ -12,23 +12,29 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.os.Build;
+import android.os.Bundle;
 import android.text.Editable;
 import android.text.Layout;
 import android.text.Spanned;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.style.CharacterStyle;
 import android.util.TypedValue;
 import android.view.ActionMode;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.EditorInfo;
 import android.widget.FrameLayout;
+
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.FileLog;
@@ -38,7 +44,11 @@ import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
 
+import java.util.List;
+
 public class EditTextCaption extends EditTextBoldCursor {
+
+    private static final int ACCESSIBILITY_ACTION_SHARE = 0x10000000;
 
     private String caption;
     private StaticLayout captionLayout;
@@ -52,6 +62,9 @@ public class EditTextCaption extends EditTextBoldCursor {
     private int selectionStart = -1;
     private int selectionEnd = -1;
     private boolean allowTextEntitiesIntersection;
+    private float offsetY;
+    private int lineCount;
+    private boolean isInitLineCount;
 
     public interface EditTextCaptionDelegate {
         void onSpansChanged();
@@ -59,6 +72,31 @@ public class EditTextCaption extends EditTextBoldCursor {
 
     public EditTextCaption(Context context) {
         super(context);
+        addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (lineCount != getLineCount()) {
+                    if (!isInitLineCount && getMeasuredWidth() > 0) {
+                        onLineCountChanged(lineCount, getLineCount());
+                    }
+                    lineCount = getLineCount();
+                }
+            }
+        });
+    }
+
+    protected void onLineCountChanged(int oldLineCount, int newLineCount) {
+
     }
 
     public void setCaption(String value) {
@@ -226,7 +264,7 @@ public class EditTextCaption extends EditTextBoldCursor {
     }
 
     private ActionMode.Callback overrideCallback(final ActionMode.Callback callback) {
-        return new ActionMode.Callback() {
+        ActionMode.Callback wrap = new ActionMode.Callback() {
             @Override
             public boolean onCreateActionMode(ActionMode mode, Menu menu) {
                 copyPasteShowed = true;
@@ -240,32 +278,7 @@ public class EditTextCaption extends EditTextBoldCursor {
 
             @Override
             public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-                if (item.getItemId() == R.id.menu_regular) {
-                    makeSelectedRegular();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_bold) {
-                    makeSelectedBold();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_italic) {
-                    makeSelectedItalic();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_mono) {
-                    makeSelectedMono();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_link) {
-                    makeSelectedUrl();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_strike) {
-                    makeSelectedStrike();
-                    mode.finish();
-                    return true;
-                } else if (item.getItemId() == R.id.menu_underline) {
-                    makeSelectedUnderline();
+                if (performMenuAction(item.getItemId())) {
                     mode.finish();
                     return true;
                 }
@@ -283,6 +296,66 @@ public class EditTextCaption extends EditTextBoldCursor {
                 callback.onDestroyActionMode(mode);
             }
         };
+        if (Build.VERSION.SDK_INT >= 23) {
+            return new ActionMode.Callback2() {
+                @Override
+                public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+                    return wrap.onCreateActionMode(mode, menu);
+                }
+
+                @Override
+                public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+                    return wrap.onPrepareActionMode(mode, menu);
+                }
+
+                @Override
+                public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+                    return wrap.onActionItemClicked(mode, item);
+                }
+
+                @Override
+                public void onDestroyActionMode(ActionMode mode) {
+                    wrap.onDestroyActionMode(mode);
+                }
+
+                @Override
+                public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
+                    if (callback instanceof ActionMode.Callback2) {
+                        ((ActionMode.Callback2) callback).onGetContentRect(mode, view, outRect);
+                    } else {
+                        super.onGetContentRect(mode, view, outRect);
+                    }
+                }
+            };
+        } else {
+            return wrap;
+        }
+    }
+
+    private boolean performMenuAction(int itemId) {
+        if (itemId == R.id.menu_regular) {
+            makeSelectedRegular();
+            return true;
+        } else if (itemId == R.id.menu_bold) {
+            makeSelectedBold();
+            return true;
+        } else if (itemId == R.id.menu_italic) {
+            makeSelectedItalic();
+            return true;
+        } else if (itemId == R.id.menu_mono) {
+            makeSelectedMono();
+            return true;
+        } else if (itemId == R.id.menu_link) {
+            makeSelectedUrl();
+            return true;
+        } else if (itemId == R.id.menu_strike) {
+            makeSelectedStrike();
+            return true;
+        } else if (itemId == R.id.menu_underline) {
+            makeSelectedUnderline();
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -299,7 +372,12 @@ public class EditTextCaption extends EditTextBoldCursor {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         try {
+            isInitLineCount = getMeasuredWidth() == 0 && getMeasuredHeight() == 0;
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            if (isInitLineCount) {
+                lineCount = getLineCount();
+            }
+            isInitLineCount = false;
         } catch (Exception e) {
             setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), AndroidUtilities.dp(51));
             FileLog.e(e);
@@ -344,8 +422,19 @@ public class EditTextCaption extends EditTextBoldCursor {
         invalidate();
     }
 
+    public void setOffsetY(float offset) {
+        this.offsetY = offset;
+        invalidate();
+    }
+
+    public float getOffsetY() {
+        return offsetY;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
+        canvas.save();
+        canvas.translate(0, offsetY);
         super.onDraw(canvas);
         try {
             if (captionLayout != null && userNameLength == length()) {
@@ -361,16 +450,37 @@ public class EditTextCaption extends EditTextBoldCursor {
         } catch (Exception e) {
             FileLog.e(e);
         }
+        canvas.restore();
     }
 
     @Override
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info);
+        final AccessibilityNodeInfoCompat infoCompat = AccessibilityNodeInfoCompat.wrap(info);
         if (!TextUtils.isEmpty(caption)) {
-            if (Build.VERSION.SDK_INT >= 26)
-				info.setHintText(caption);
-            else
-                info.setText(info.getText()+", "+caption);
+            infoCompat.setHintText(caption);
         }
+        final List<AccessibilityNodeInfoCompat.AccessibilityActionCompat> actions = infoCompat.getActionList();
+        for (int i = 0, size = actions.size(); i < size; i++) {
+            final AccessibilityNodeInfoCompat.AccessibilityActionCompat action = actions.get(i);
+            if (action.getId() == ACCESSIBILITY_ACTION_SHARE) {
+                infoCompat.removeAction(action);
+                break;
+            }
+        }
+        if (hasSelection()) {
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_bold, LocaleController.getString("Bold", R.string.Bold)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_italic, LocaleController.getString("Italic", R.string.Italic)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_mono, LocaleController.getString("Mono", R.string.Mono)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_strike, LocaleController.getString("Strike", R.string.Strike)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_underline, LocaleController.getString("Underline", R.string.Underline)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_link, LocaleController.getString("CreateLink", R.string.CreateLink)));
+            infoCompat.addAction(new AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.menu_regular, LocaleController.getString("Regular", R.string.Regular)));
+        }
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, Bundle arguments) {
+        return performMenuAction(action) || super.performAccessibilityAction(action, arguments);
     }
 }

@@ -15,6 +15,7 @@ import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.View;
@@ -55,9 +56,9 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
     private static ArrayList<BaseFragment> layerFragmentsStack = new ArrayList<>();
 
     private PasscodeView passcodeView;
-    private ActionBarLayout actionBarLayout;
-    private ActionBarLayout layersActionBarLayout;
-    private View backgroundTablet;
+    protected ActionBarLayout actionBarLayout;
+    protected ActionBarLayout layersActionBarLayout;
+    protected View backgroundTablet;
     protected DrawerLayoutContainer drawerLayoutContainer;
 
     private Intent passcodeSaveIntent;
@@ -86,13 +87,10 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
         super.onCreate(savedInstanceState);
 
         if (SharedConfig.passcodeHash.length() != 0 && SharedConfig.appLocked) {
-            SharedConfig.lastPauseTime = ConnectionsManager.getInstance(UserConfig.selectedAccount).getCurrentTime();
+            SharedConfig.lastPauseTime = (int) (SystemClock.elapsedRealtime() / 1000);
         }
 
-        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId > 0) {
-            AndroidUtilities.statusBarHeight = getResources().getDimensionPixelSize(resourceId);
-        }
+        AndroidUtilities.fillStatusBarHeight(this);
         Theme.createDialogsResources(this);
         Theme.createChatResources(this, false);
 
@@ -127,7 +125,7 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
                 if (!actionBarLayout.fragmentsStack.isEmpty() && event.getAction() == MotionEvent.ACTION_UP) {
                     float x = event.getX();
                     float y = event.getY();
-                    int location[] = new int[2];
+                    int[] location = new int[2];
                     layersActionBarLayout.getLocationOnScreen(location);
                     int viewX = location[0];
                     int viewY = location[1];
@@ -235,7 +233,7 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
         }
     }
 
-    private boolean handleIntent(final Intent intent, final boolean isNew, final boolean restore, final boolean fromPassword, final int intentAccount, int state) {
+    protected boolean checkPasscode(final Intent intent, final boolean isNew, final boolean restore, final boolean fromPassword, final int intentAccount, int state) {
         if (!fromPassword && (AndroidUtilities.needShowPasscode(true) || SharedConfig.isWaitingForPasscodeEnter)) {
             showPasscodeActivity();
             passcodeSaveIntent = intent;
@@ -244,6 +242,13 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
             passcodeSaveIntentAccount = intentAccount;
             passcodeSaveIntentState = state;
             UserConfig.getInstance(intentAccount).saveConfig(false);
+            return false;
+        }
+        return true;
+    }
+
+    protected boolean handleIntent(final Intent intent, final boolean isNew, final boolean restore, final boolean fromPassword, final int intentAccount, int state) {
+        if (!checkPasscode(intent, isNew, restore, fromPassword, intentAccount, state)) {
             return false;
         }
         if ("org.telegram.passport.AUTHORIZE".equals(intent.getAction())) {
@@ -540,7 +545,7 @@ public class ExternalActionActivity extends Activity implements ActionBarLayout.
             lockRunnable = null;
         }
         if (SharedConfig.passcodeHash.length() != 0) {
-            SharedConfig.lastPauseTime = ConnectionsManager.getInstance(UserConfig.selectedAccount).getCurrentTime();
+            SharedConfig.lastPauseTime = (int) (SystemClock.elapsedRealtime() / 1000);
             lockRunnable = new Runnable() {
                 @Override
                 public void run() {

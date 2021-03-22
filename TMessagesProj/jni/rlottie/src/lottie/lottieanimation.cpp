@@ -44,7 +44,7 @@ public:
     double  frameRate() const { return mModel->frameRate(); }
     size_t  totalFrame() const { return mModel->totalFrame(); }
     size_t  frameAtPos(double pos) const { return mModel->frameAtPos(pos); }
-    Surface render(size_t frameNo, const Surface &surface);
+    Surface render(size_t frameNo, const Surface &surface, bool clear);
     const LOTLayerNode * renderTree(size_t frameNo, const VSize &size);
 
     const LayerInfoList &layerInfoList() const
@@ -53,6 +53,7 @@ public:
     }
     void setValue(const std::string &keypath, LOTVariant &&value);
     void removeFilter(const std::string &keypath, Property prop);
+    void resetCurrentFrame();
 
 private:
     std::string                  mFilePath;
@@ -66,6 +67,10 @@ void AnimationImpl::setValue(const std::string &keypath, LOTVariant &&value)
 {
     if (keypath.empty()) return;
     mCompItem->setValue(keypath, value);
+}
+
+void AnimationImpl::resetCurrentFrame() {
+    mCompItem->resetCurrentFrame();
 }
 
 const LOTLayerNode *AnimationImpl::renderTree(size_t frameNo, const VSize &size)
@@ -88,7 +93,7 @@ bool AnimationImpl::update(size_t frameNo, const VSize &size)
     return mCompItem->update(frameNo);
 }
 
-Surface AnimationImpl::render(size_t frameNo, const Surface &surface)
+Surface AnimationImpl::render(size_t frameNo, const Surface &surface, bool clear)
 {
     bool renderInProgress = mRenderInProgress.load();
     if (renderInProgress) {
@@ -99,7 +104,7 @@ Surface AnimationImpl::render(size_t frameNo, const Surface &surface)
     mRenderInProgress.store(true);
     update(frameNo,
            VSize(surface.drawRegionWidth(), surface.drawRegionHeight()));
-    mCompItem->render(surface);
+    mCompItem->render(surface, clear);
     mRenderInProgress.store(false);
 
     return surface;
@@ -119,6 +124,7 @@ void AnimationImpl::init(const std::shared_ptr<LOTModel> &model)
  */
 std::unique_ptr<Animation> Animation::loadFromData(
     std::string jsonData, const std::string &key,
+    std::map<int32_t, int32_t> *colorReplacement,
     const std::string &resourcePath)
 {
     if (jsonData.empty()) {
@@ -128,15 +134,20 @@ std::unique_ptr<Animation> Animation::loadFromData(
 
     LottieLoader loader;
     if (loader.loadFromData(std::move(jsonData), key,
+                            colorReplacement,
                             (resourcePath.empty() ? " " : resourcePath))) {
         auto animation = std::unique_ptr<Animation>(new Animation);
+        animation->colorMap = colorReplacement;
         animation->d->init(loader.model());
         return animation;
+    }
+    if (colorReplacement != nullptr) {
+        delete colorReplacement;
     }
     return nullptr;
 }
 
-std::unique_ptr<Animation> Animation::loadFromFile(const std::string &path, std::map<int32_t, int32_t> &colorReplacement)
+std::unique_ptr<Animation> Animation::loadFromFile(const std::string &path, std::map<int32_t, int32_t> *colorReplacement)
 {
     if (path.empty()) {
         vWarning << "File path is empty";
@@ -146,8 +157,12 @@ std::unique_ptr<Animation> Animation::loadFromFile(const std::string &path, std:
     LottieLoader loader;
     if (loader.load(path, colorReplacement)) {
         auto animation = std::unique_ptr<Animation>(new Animation);
+        animation->colorMap = colorReplacement;
         animation->d->init(loader.model());
         return animation;
+    }
+    if (colorReplacement != nullptr) {
+        delete colorReplacement;
     }
     return nullptr;
 }
@@ -186,9 +201,9 @@ const LOTLayerNode *Animation::renderTree(size_t frameNo, size_t width,
     return d->renderTree(frameNo, VSize(width, height));
 }
 
-void Animation::renderSync(size_t frameNo, Surface surface)
+void Animation::renderSync(size_t frameNo, Surface &surface, bool clear)
 {
-    d->render(frameNo, surface);
+    d->render(frameNo, surface, clear);
 }
 
 const LayerInfoList &Animation::layers() const
@@ -254,7 +269,16 @@ Animation::Animation() : d(std::make_unique<AnimationImpl>()) {}
  * this is only to supress build fail
  * because unique_ptr expects the destructor in the same translation unit.
  */
-Animation::~Animation() {}
+Animation::~Animation() {
+    if (colorMap != nullptr) {
+        delete colorMap;
+        colorMap = nullptr;
+    }
+}
+
+void Animation::resetCurrentFrame() {
+    d->resetCurrentFrame();
+}
 
 Surface::Surface(uint32_t *buffer, size_t width, size_t height,
                  size_t bytesPerLine)

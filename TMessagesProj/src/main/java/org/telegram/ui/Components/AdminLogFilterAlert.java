@@ -67,15 +67,17 @@ public class AdminLogFilterAlert extends BottomSheet {
     private int restrictionsRow;
     private int adminsRow;
     private int membersRow;
+    private int invitesRow;
     private int infoRow;
     private int deleteRow;
     private int editRow;
     private int pinnedRow;
     private int leavingRow;
+    private int callsRow;
     private int allAdminsRow;
 
     public AdminLogFilterAlert(Context context, TLRPC.TL_channelAdminLogEventsFilter filter, SparseArray<TLRPC.User> admins, boolean megagroup) {
-        super(context, false, 0);
+        super(context, false);
         if (filter != null) {
             currentFilter = new TLRPC.TL_channelAdminLogEventsFilter();
             currentFilter.join = filter.join;
@@ -92,6 +94,8 @@ public class AdminLogFilterAlert extends BottomSheet {
             currentFilter.pinned = filter.pinned;
             currentFilter.edit = filter.edit;
             currentFilter.delete = filter.delete;
+            currentFilter.group_call = filter.group_call;
+            currentFilter.invites = filter.invites;
         }
         if (admins != null) {
             selectedAdmins = admins.clone();
@@ -106,6 +110,7 @@ public class AdminLogFilterAlert extends BottomSheet {
         }
         adminsRow = rowCount++;
         membersRow = rowCount++;
+        invitesRow = rowCount++;
         infoRow = rowCount++;
         deleteRow = rowCount++;
         editRow = rowCount++;
@@ -114,11 +119,12 @@ public class AdminLogFilterAlert extends BottomSheet {
         } else {
             pinnedRow = -1;
         }
-        leavingRow = rowCount;
-        rowCount += 2;
+        leavingRow = rowCount++;
+        callsRow = rowCount++;
+        rowCount += 1;
         allAdminsRow = rowCount;
 
-        shadowDrawable = context.getResources().getDrawable(R.drawable.sheet_shadow).mutate();
+        shadowDrawable = context.getResources().getDrawable(R.drawable.sheet_shadow_round).mutate();
         shadowDrawable.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_dialogBackground), PorterDuff.Mode.MULTIPLY));
 
         containerView = new FrameLayout(context) {
@@ -144,7 +150,7 @@ public class AdminLogFilterAlert extends BottomSheet {
                     height -= AndroidUtilities.statusBarHeight;
                 }
                 int measuredWidth = getMeasuredWidth();
-                int contentSize = AndroidUtilities.dp(48) + (isMegagroup ? 9 : 7) * AndroidUtilities.dp(48) + backgroundPaddingTop;
+                int contentSize = AndroidUtilities.dp(48) + (isMegagroup ? 11 : 8) * AndroidUtilities.dp(48) + backgroundPaddingTop + AndroidUtilities.dp(17);
                 if (currentAdmins != null) {
                     contentSize += (currentAdmins.size() + 1) * AndroidUtilities.dp(48) + AndroidUtilities.dp(20);
                 }
@@ -225,7 +231,7 @@ public class AdminLogFilterAlert extends BottomSheet {
                         currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
                         currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
                         currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
-                        currentFilter.edit = currentFilter.delete = false;
+                        currentFilter.edit = currentFilter.delete = currentFilter.group_call = currentFilter.invites = false;
                     } else {
                         currentFilter = null;
                     }
@@ -260,7 +266,7 @@ public class AdminLogFilterAlert extends BottomSheet {
                         currentFilter.join = currentFilter.leave = currentFilter.invite = currentFilter.ban =
                         currentFilter.unban = currentFilter.kick = currentFilter.unkick = currentFilter.promote =
                         currentFilter.demote = currentFilter.info = currentFilter.settings = currentFilter.pinned =
-                        currentFilter.edit = currentFilter.delete = true;
+                        currentFilter.edit = currentFilter.delete = currentFilter.group_call = currentFilter.invites = true;
                         RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(0);
                         if (holder != null) {
                             ((CheckBoxCell) holder.itemView).setChecked(false, true);
@@ -282,14 +288,17 @@ public class AdminLogFilterAlert extends BottomSheet {
                         currentFilter.pinned = !currentFilter.pinned;
                     } else if (position == leavingRow) {
                         currentFilter.leave = !currentFilter.leave;
+                    } else if (position == callsRow) {
+                        currentFilter.group_call = !currentFilter.group_call;
+                    } else if (position == invitesRow) {
+                        currentFilter.invites = !currentFilter.invites;
                     }
                 }
-                if (currentFilter != null && !currentFilter.join && !currentFilter.leave &&
-                        !currentFilter.leave && !currentFilter.invite && !currentFilter.ban &&
-                        !currentFilter.unban && !currentFilter.kick && !currentFilter.unkick &&
-                        !currentFilter.promote && !currentFilter.demote && !currentFilter.info &&
-                        !currentFilter.settings && !currentFilter.pinned && !currentFilter.edit &&
-                        !currentFilter.delete) {
+                if (currentFilter != null &&
+                        !currentFilter.join && !currentFilter.leave && !currentFilter.invite && !currentFilter.ban &&
+                        !currentFilter.invites && !currentFilter.unban && !currentFilter.kick && !currentFilter.unkick &&
+                        !currentFilter.promote && !currentFilter.demote && !currentFilter.info && !currentFilter.settings &&
+                        !currentFilter.pinned && !currentFilter.edit && !currentFilter.delete && !currentFilter.group_call) {
                     saveButton.setEnabled(false);
                     saveButton.setAlpha(0.5f);
                 } else {
@@ -381,7 +390,7 @@ public class AdminLogFilterAlert extends BottomSheet {
 
         @Override
         public int getItemCount() {
-            return (isMegagroup ? 9 : 7) + (currentAdmins != null ? 2 + currentAdmins.size() : 0);
+            return (isMegagroup ? 11 : 8) + (currentAdmins != null ? 2 + currentAdmins.size() : 0);
         }
 
         @Override
@@ -406,7 +415,6 @@ public class AdminLogFilterAlert extends BottomSheet {
             switch (viewType) {
                 case 0:
                     view = new CheckBoxCell(context, 1, 21);
-                    view.setBackgroundDrawable(Theme.getSelectorDrawable(false));
                     break;
                 case 1:
                     ShadowSectionCell shadowSectionCell = new ShadowSectionCell(context, 18);
@@ -446,6 +454,10 @@ public class AdminLogFilterAlert extends BottomSheet {
                         cell.setChecked(currentFilter == null || currentFilter.pinned, false);
                     } else if (position == leavingRow) {
                         cell.setChecked(currentFilter == null || currentFilter.leave, false);
+                    } else if (position == callsRow) {
+                        cell.setChecked(currentFilter == null || currentFilter.group_call, false);
+                    } else if (position == invitesRow) {
+                        cell.setChecked(currentFilter == null || currentFilter.invites, false);
                     } else if (position == allAdminsRow) {
                         cell.setChecked(selectedAdmins == null, false);
                     }
@@ -486,7 +498,11 @@ public class AdminLogFilterAlert extends BottomSheet {
                     } else if (position == pinnedRow) {
                         cell.setText(LocaleController.getString("EventLogFilterPinnedMessages", R.string.EventLogFilterPinnedMessages), "", currentFilter == null || currentFilter.pinned, true);
                     } else if (position == leavingRow) {
-                        cell.setText(LocaleController.getString("EventLogFilterLeavingMembers", R.string.EventLogFilterLeavingMembers), "", currentFilter == null || currentFilter.leave, false);
+                        cell.setText(LocaleController.getString("EventLogFilterLeavingMembers", R.string.EventLogFilterLeavingMembers), "", currentFilter == null || currentFilter.leave, callsRow != -1);
+                    } else if (position == callsRow) {
+                        cell.setText(LocaleController.getString("EventLogFilterCalls", R.string.EventLogFilterCalls), "", currentFilter == null || currentFilter.group_call, false);
+                    } else if (position == invitesRow) {
+                        cell.setText(LocaleController.getString("EventLogFilterInvites", R.string.EventLogFilterInvites), "", currentFilter == null || currentFilter.invites, true);
                     } else if (position == allAdminsRow) {
                         cell.setText(LocaleController.getString("EventLogAllAdmins", R.string.EventLogAllAdmins), "", selectedAdmins == null, true);
                     }

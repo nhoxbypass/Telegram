@@ -30,10 +30,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
@@ -57,6 +55,7 @@ import org.telegram.ui.Cells.TextSettingsCell;
 import org.telegram.ui.Cells.ThemePreviewMessagesCell;
 import org.telegram.ui.Cells.ThemesHorizontalListCell;
 import org.telegram.ui.Components.AlertsCreator;
+import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.LayoutHelper;
 
@@ -77,7 +76,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
 
     private View divider;
     private HeaderCell headerCell;
-    private EditText editText;
+    private EditTextBoldCursor editText;
     private LinearLayout linearLayoutTypeContainer;
 
     private int checkReqId;
@@ -89,6 +88,8 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
     private boolean creatingNewTheme;
 
     private Theme.ThemeInfo themeInfo;
+    private Theme.ThemeAccent themeAccent;
+    private TLRPC.TL_theme info;
 
     private final static int done_button = 1;
 
@@ -112,7 +113,9 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                 android.content.ClipboardManager clipboard = (android.content.ClipboardManager) ApplicationLoader.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
                 android.content.ClipData clip = android.content.ClipData.newPlainText("label", url);
                 clipboard.setPrimaryClip(clip);
-                Toast.makeText(getParentActivity(), LocaleController.getString("LinkCopied", R.string.LinkCopied), Toast.LENGTH_SHORT).show();
+                if (BulletinFactory.canShowBulletin(ThemeSetUrlActivity.this)) {
+                    BulletinFactory.createCopyLinkBulletin(ThemeSetUrlActivity.this).show();
+                }
             } catch (Exception e) {
                 FileLog.e(e);
             }
@@ -135,9 +138,12 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         }
     }
 
-    public ThemeSetUrlActivity(Theme.ThemeInfo theme, boolean newTheme) {
+    public ThemeSetUrlActivity(Theme.ThemeInfo theme, Theme.ThemeAccent accent, boolean newTheme) {
         super();
         themeInfo = theme;
+        themeAccent = accent;
+        info = accent != null ? accent.info : theme.info;
+        currentAccount = accent != null ? accent.account : theme.account;
         creatingNewTheme = newTheme;
     }
 
@@ -234,7 +240,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         linkContainer.setOrientation(LinearLayout.HORIZONTAL);
         linearLayoutTypeContainer.addView(linkContainer, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 50, 23, 0, 23, 0));
 
-        editText = new EditText(context);
+        editText = new EditTextBoldCursor(context);
         editText.setText(getMessagesController().linkPrefix + "/addtheme/");
         editText.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
         editText.setHintTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteHintText));
@@ -292,7 +298,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                     return;
                 }
                 if (linkField.length() > 0) {
-                    String url = "https://" + MessagesController.getInstance(themeInfo.account).linkPrefix + "/addtheme/" + linkField.getText();
+                    String url = "https://" + getMessagesController().linkPrefix + "/addtheme/" + linkField.getText();
                     String text = LocaleController.formatString("ThemeHelpLink", R.string.ThemeHelpLink, url);
                     int index = text.indexOf(url);
                     SpannableStringBuilder textSpan = new SpannableStringBuilder(text);
@@ -344,7 +350,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                 if (getParentActivity() == null) {
                     return;
                 }
-                BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity(), false, 1);
+                BottomSheet.Builder builder = new BottomSheet.Builder(getParentActivity(), false);
                 builder.setApplyBottomPadding(false);
 
                 LinearLayout container = new LinearLayout(context);
@@ -386,11 +392,11 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
             helpInfoCell.setBackgroundDrawable(Theme.getThemedDrawable(context, R.drawable.greydivider_bottom, Theme.key_windowBackgroundGrayShadow));
         }
 
-        if (themeInfo != null) {
+        if (info != null) {
             ignoreCheck = true;
-            nameField.setText(themeInfo.name);
+            nameField.setText(info.title);
             nameField.setSelection(nameField.length());
-            linkField.setText(themeInfo.info.slug);
+            linkField.setText(info.slug);
             linkField.setSelection(linkField.length());
             ignoreCheck = false;
         }
@@ -415,7 +421,8 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
     public void didReceivedNotification(int id, int account, Object... args) {
         if (id == NotificationCenter.themeUploadedToServer) {
             Theme.ThemeInfo theme = (Theme.ThemeInfo) args[0];
-            if (theme == themeInfo && progressDialog != null) {
+            Theme.ThemeAccent accent = (Theme.ThemeAccent) args[1];
+            if (theme == themeInfo && accent == themeAccent && progressDialog != null) {
                 try {
                     progressDialog.dismiss();
                     progressDialog = null;
@@ -427,7 +434,8 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
             }
         } else if (id == NotificationCenter.themeUploadError) {
             Theme.ThemeInfo theme = (Theme.ThemeInfo) args[0];
-            if (theme == themeInfo && progressDialog != null) {
+            Theme.ThemeAccent accent = (Theme.ThemeAccent) args[1];
+            if (theme == themeInfo && accent == themeAccent && progressDialog != null) {
                 try {
                     progressDialog.dismiss();
                     progressDialog = null;
@@ -444,7 +452,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
             checkRunnable = null;
             lastCheckName = null;
             if (checkReqId != 0) {
-                ConnectionsManager.getInstance(themeInfo.account).cancelRequest(checkReqId, true);
+                ConnectionsManager.getInstance(currentAccount).cancelRequest(checkReqId, true);
             }
         }
         lastNameAvailable = false;
@@ -491,7 +499,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         }
 
         if (!alert) {
-            String currentUrl = themeInfo != null && themeInfo.info.slug != null ? themeInfo.info.slug : "";
+            String currentUrl = info != null && info.slug != null ? info.slug : "";
             if (url.equals(currentUrl)) {
                 setCheckText(LocaleController.formatString("SetUrlAvailable", R.string.SetUrlAvailable, url), Theme.key_windowBackgroundWhiteGreenText);
                 return true;
@@ -504,7 +512,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                 req.slug = url;
                 req.title = "";
                 req.document = new TLRPC.TL_inputDocumentEmpty();
-                checkReqId = ConnectionsManager.getInstance(themeInfo.account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                checkReqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
                     checkReqId = 0;
                     if (lastCheckName != null && lastCheckName.equals(url)) {
                         if (error == null || !"THEME_SLUG_INVALID".equals(error.text) && !"THEME_SLUG_OCCUPIED".equals(error.text)) {
@@ -555,20 +563,20 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
             return;
         }
         if (creatingNewTheme) {
-            String oldName = themeInfo.name;
-            String oldSlug = themeInfo.info.slug;
+            String oldName = info.title;
+            String oldSlug = info.slug;
             progressDialog = new AlertDialog(getParentActivity(), 3);
             progressDialog.setOnCancelListener(dialog -> {
 
             });
             progressDialog.show();
-            themeInfo.name = themeInfo.info.title = nameField.getText().toString();
+            themeInfo.name = info.title = nameField.getText().toString();
             themeInfo.info.slug = linkField.getText().toString();
             Theme.saveCurrentTheme(themeInfo, true, true, true);
             return;
         }
-        String currentUrl = themeInfo.info.slug == null ? "" : themeInfo.info.slug;
-        String currentName = themeInfo.name == null ? "" : themeInfo.name;
+        String currentUrl = info.slug == null ? "" : info.slug;
+        String currentName = info.title == null ? "" : info.title;
         String newUrl = linkField.getText().toString();
         String newName = nameField.getText().toString();
         if (currentUrl.equals(newUrl) && currentName.equals(newName)) {
@@ -580,8 +588,8 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
 
         final TLRPC.TL_account_updateTheme req = new TLRPC.TL_account_updateTheme();
         TLRPC.TL_inputTheme inputTheme = new TLRPC.TL_inputTheme();
-        inputTheme.id = themeInfo.info.id;
-        inputTheme.access_hash = themeInfo.info.access_hash;
+        inputTheme.id = info.id;
+        inputTheme.access_hash = info.access_hash;
         req.theme = inputTheme;
         req.format = "android";
         req.slug = newUrl;
@@ -590,7 +598,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
         req.title = newName;
         req.flags |= 2;
 
-        final int reqId = ConnectionsManager.getInstance(themeInfo.account).sendRequest(req, (response, error) -> {
+        final int reqId = ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
             if (response instanceof TLRPC.TL_theme) {
                 TLRPC.TL_theme theme = (TLRPC.TL_theme) response;
                 AndroidUtilities.runOnUIThread(() -> {
@@ -600,7 +608,7 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                     } catch (Exception e) {
                         FileLog.e(e);
                     }
-                    Theme.setThemeUploadInfo(themeInfo, theme, false);
+                    Theme.setThemeUploadInfo(themeInfo, themeAccent, theme, currentAccount, false);
                     finishFragment();
                 });
             } else {
@@ -611,13 +619,13 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
                     } catch (Exception e) {
                         FileLog.e(e);
                     }
-                    AlertsCreator.processError(themeInfo.account, error, ThemeSetUrlActivity.this, req);
+                    AlertsCreator.processError(currentAccount, error, ThemeSetUrlActivity.this, req);
                 });
             }
         }, ConnectionsManager.RequestFlagFailOnServerErrors);
-        ConnectionsManager.getInstance(themeInfo.account).bindRequestToGuid(reqId, classGuid);
+        ConnectionsManager.getInstance(currentAccount).bindRequestToGuid(reqId, classGuid);
 
-        progressDialog.setOnCancelListener(dialog -> ConnectionsManager.getInstance(themeInfo.account).cancelRequest(reqId, true));
+        progressDialog.setOnCancelListener(dialog -> ConnectionsManager.getInstance(currentAccount).cancelRequest(reqId, true));
         progressDialog.show();
     }
 
@@ -630,76 +638,81 @@ public class ThemeSetUrlActivity extends BaseFragment implements NotificationCen
     }
 
     @Override
-    public ThemeDescription[] getThemeDescriptions() {
-        return new ThemeDescription[]{
-                new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundGray),
+    public ArrayList<ThemeDescription> getThemeDescriptions() {
+        ArrayList<ThemeDescription> themeDescriptions = new ArrayList<>();
 
-                new ThemeDescription(linearLayoutTypeContainer, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundWhite),
+        themeDescriptions.add(new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundGray));
 
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_actionBarDefault),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_ITEMSCOLOR, null, null, null, null, Theme.key_actionBarDefaultIcon),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_TITLECOLOR, null, null, null, null, Theme.key_actionBarDefaultTitle),
-                new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_actionBarDefaultSelector),
+        themeDescriptions.add(new ThemeDescription(linearLayoutTypeContainer, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundWhite));
 
-                new ThemeDescription(headerCell, 0, new Class[]{HeaderCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlueHeader),
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_actionBarDefault));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_ITEMSCOLOR, null, null, null, null, Theme.key_actionBarDefaultIcon));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_TITLECOLOR, null, null, null, null, Theme.key_actionBarDefaultTitle));
+        themeDescriptions.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_actionBarDefaultSelector));
 
-                new ThemeDescription(createInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow),
-                new ThemeDescription(createInfoCell, 0, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText4),
+        themeDescriptions.add(new ThemeDescription(headerCell, 0, new Class[]{HeaderCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlueHeader));
 
-                new ThemeDescription(helpInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow),
-                new ThemeDescription(helpInfoCell, 0, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText4),
+        themeDescriptions.add(new ThemeDescription(createInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow));
+        themeDescriptions.add(new ThemeDescription(createInfoCell, 0, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText4));
 
-                new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow),
-                new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteRedText4),
-                new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText8),
-                new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGreenText),
+        themeDescriptions.add(new ThemeDescription(helpInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow));
+        themeDescriptions.add(new ThemeDescription(helpInfoCell, 0, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText4));
 
-                new ThemeDescription(createCell, 0, new Class[]{TextSettingsCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(createCell, ThemeDescription.FLAG_SELECTORWHITE, null, null, null, null, Theme.key_listSelector),
-                new ThemeDescription(createCell, ThemeDescription.FLAG_SELECTORWHITE, null, null, null, null, Theme.key_windowBackgroundWhite),
+        themeDescriptions.add(new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_BACKGROUNDFILTER, new Class[]{TextInfoPrivacyCell.class}, null, null, null, Theme.key_windowBackgroundGrayShadow));
+        themeDescriptions.add(new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteRedText4));
+        themeDescriptions.add(new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGrayText8));
+        themeDescriptions.add(new ThemeDescription(checkInfoCell, ThemeDescription.FLAG_CHECKTAG, new Class[]{TextInfoPrivacyCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteGreenText));
 
-                new ThemeDescription(linkField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(linkField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText),
-                new ThemeDescription(linkField, ThemeDescription.FLAG_BACKGROUNDFILTER, null, null, null, null, Theme.key_windowBackgroundWhiteInputField),
-                new ThemeDescription(linkField, ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, null, null, null, null, Theme.key_windowBackgroundWhiteInputFieldActivated),
+        themeDescriptions.add(new ThemeDescription(createCell, 0, new Class[]{TextSettingsCell.class}, new String[]{"textView"}, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(createCell, ThemeDescription.FLAG_SELECTORWHITE, null, null, null, null, Theme.key_listSelector));
+        themeDescriptions.add(new ThemeDescription(createCell, ThemeDescription.FLAG_SELECTORWHITE, null, null, null, null, Theme.key_windowBackgroundWhite));
 
-                new ThemeDescription(linkField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(linkField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText),
-                new ThemeDescription(linkField, ThemeDescription.FLAG_CURSORCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(nameField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(nameField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText),
-                new ThemeDescription(nameField, ThemeDescription.FLAG_CURSORCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(editText, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText),
-                new ThemeDescription(editText, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText),
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText));
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_BACKGROUNDFILTER, null, null, null, null, Theme.key_windowBackgroundWhiteInputField));
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, null, null, null, null, Theme.key_windowBackgroundWhiteInputFieldActivated));
 
-                new ThemeDescription(divider, 0, null, Theme.dividerPaint, null, null, Theme.key_divider),
-                new ThemeDescription(divider, ThemeDescription.FLAG_BACKGROUND, null, Theme.dividerPaint, null, null, Theme.key_divider),
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText));
+        themeDescriptions.add(new ThemeDescription(linkField, ThemeDescription.FLAG_CURSORCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(nameField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(nameField, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText));
+        themeDescriptions.add(new ThemeDescription(nameField, ThemeDescription.FLAG_CURSORCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(editText, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        themeDescriptions.add(new ThemeDescription(editText, ThemeDescription.FLAG_HINTTEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteHintText));
 
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgInDrawable, Theme.chat_msgInMediaDrawable}, null, Theme.key_chat_inBubble),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgInSelectedDrawable, Theme.chat_msgInMediaSelectedDrawable}, null, Theme.key_chat_inBubbleSelected),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgInShadowDrawable, Theme.chat_msgInMediaShadowDrawable}, null, Theme.key_chat_inBubbleShadow),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutDrawable, Theme.chat_msgOutMediaDrawable}, null, Theme.key_chat_outBubble),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutSelectedDrawable, Theme.chat_msgOutMediaSelectedDrawable}, null, Theme.key_chat_outBubbleSelected),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutShadowDrawable, Theme.chat_msgOutMediaShadowDrawable}, null, Theme.key_chat_outBubbleShadow),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_messageTextIn),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_messageTextOut),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckDrawable}, null, Theme.key_chat_outSentCheck),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckSelectedDrawable}, null, Theme.key_chat_outSentCheckSelected),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckReadDrawable, Theme.chat_msgOutHalfCheckDrawable}, null, Theme.key_chat_outSentCheckRead),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckReadSelectedDrawable, Theme.chat_msgOutHalfCheckSelectedDrawable}, null, Theme.key_chat_outSentCheckReadSelected),
-                new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgMediaCheckDrawable, Theme.chat_msgMediaHalfCheckDrawable}, null, Theme.key_chat_mediaSentCheck),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyLine),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyLine),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyNameText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyNameText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyMessageText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyMessageText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyMediaMessageSelectedText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyMediaMessageSelectedText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inTimeText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outTimeText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inTimeSelectedText),
-                new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outTimeSelectedText),
-        };
+        themeDescriptions.add(new ThemeDescription(divider, 0, null, Theme.dividerPaint, null, null, Theme.key_divider));
+        themeDescriptions.add(new ThemeDescription(divider, ThemeDescription.FLAG_BACKGROUND, null, Theme.dividerPaint, null, null, Theme.key_divider));
+
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgInDrawable, Theme.chat_msgInMediaDrawable}, null, Theme.key_chat_inBubble));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgInSelectedDrawable, Theme.chat_msgInMediaSelectedDrawable}, null, Theme.key_chat_inBubbleSelected));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, Theme.chat_msgInDrawable.getShadowDrawables(), null, Theme.key_chat_inBubbleShadow));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, Theme.chat_msgInMediaDrawable.getShadowDrawables(), null, Theme.key_chat_inBubbleShadow));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutDrawable, Theme.chat_msgOutMediaDrawable}, null, Theme.key_chat_outBubble));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutDrawable, Theme.chat_msgOutMediaDrawable}, null, Theme.key_chat_outBubbleGradient));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutSelectedDrawable, Theme.chat_msgOutMediaSelectedDrawable}, null, Theme.key_chat_outBubbleSelected));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, Theme.chat_msgOutDrawable.getShadowDrawables(), null, Theme.key_chat_outBubbleShadow));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, Theme.chat_msgOutMediaDrawable.getShadowDrawables(), null, Theme.key_chat_outBubbleShadow));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_messageTextIn));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_messageTextOut));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckDrawable}, null, Theme.key_chat_outSentCheck));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckSelectedDrawable}, null, Theme.key_chat_outSentCheckSelected));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckReadDrawable, Theme.chat_msgOutHalfCheckDrawable}, null, Theme.key_chat_outSentCheckRead));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgOutCheckReadSelectedDrawable, Theme.chat_msgOutHalfCheckSelectedDrawable}, null, Theme.key_chat_outSentCheckReadSelected));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, new Drawable[]{Theme.chat_msgMediaCheckDrawable, Theme.chat_msgMediaHalfCheckDrawable}, null, Theme.key_chat_mediaSentCheck));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyLine));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyLine));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyNameText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyNameText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyMessageText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyMessageText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inReplyMediaMessageSelectedText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outReplyMediaMessageSelectedText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inTimeText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outTimeText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_inTimeSelectedText));
+        themeDescriptions.add(new ThemeDescription(messagesCell, 0, null, null, null, null, Theme.key_chat_outTimeSelectedText));
+
+        return themeDescriptions;
     }
 }

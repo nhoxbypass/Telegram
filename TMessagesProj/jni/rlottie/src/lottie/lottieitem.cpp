@@ -95,6 +95,11 @@ void LOTCompItem::setValue(const std::string &keypath, LOTVariant &value)
     mCurFrameNo = -1;
 }
 
+void LOTCompItem::resetCurrentFrame()
+{
+    mCurFrameNo = -1;
+}
+
 std::unique_ptr<LOTLayerItem> LOTCompItem::createLayerItem(
     LOTLayerData *layerData)
 {
@@ -170,7 +175,7 @@ const LOTLayerNode *LOTCompItem::renderTree() const
     return mRootLayer->layerNode();
 }
 
-bool LOTCompItem::render(const rlottie::Surface &surface)
+bool LOTCompItem::render(const rlottie::Surface &surface, bool clear)
 {
     VBitmap bitmap(reinterpret_cast<uchar *>(surface.buffer()), surface.width(),
                    surface.height(), surface.bytesPerLine(),
@@ -185,7 +190,7 @@ bool LOTCompItem::render(const rlottie::Surface &surface)
         e->preprocess(clip);
     }
 
-    VPainter painter(&bitmap);
+    VPainter painter(&bitmap, clear);
     // set sub surface area for drawing.
     painter.setDrawRegion(
         VRect(surface.drawRegionPosX(), surface.drawRegionPosY(),
@@ -352,9 +357,11 @@ void LOTLayerItem::render(VPainter *painter, const VRle &inheritMask,
 
 LOTLayerMaskItem::LOTLayerMaskItem(LOTLayerData *layerData)
 {
-    mMasks.reserve(layerData->mMasks.size());
+    if (!layerData->mExtra) return;
 
-    for (auto &i : layerData->mMasks) {
+    mMasks.reserve(layerData->mExtra->mMasks.size());
+
+    for (auto &i : layerData->mExtra->mMasks) {
         mMasks.emplace_back(i.get());
         mStatic &= i->isStatic();
     }
@@ -424,9 +431,8 @@ bool LOTLayerItem::resolveKeyPath(LOTKeyPath &keyPath, uint depth,
     }
 
     if (!keyPath.skip(name())) {
-        if (keyPath.fullyResolvesTo(name(), depth) &&
-            transformProp(value.property())) {
-            //@TODO handle propery update.
+        if (keyPath.fullyResolvesTo(name(), depth) && transformProp(value.property())) {
+            mDirtyFlag = DirtyFlagBit::All;
         }
     }
     return true;
@@ -438,7 +444,9 @@ bool LOTShapeLayerItem::resolveKeyPath(LOTKeyPath &keyPath, uint depth,
     if (LOTLayerItem::resolveKeyPath(keyPath, depth, value)) {
         if (keyPath.propagate(name(), depth)) {
             uint newDepth = keyPath.nextDepth(name(), depth);
-            mRoot->resolveKeyPath(keyPath, newDepth, value);
+            if (mRoot->resolveKeyPath(keyPath, newDepth, value)) {
+                mDirtyFlag = DirtyFlagBit::All;
+            }
         }
         return true;
     }
@@ -452,7 +460,9 @@ bool LOTCompLayerItem::resolveKeyPath(LOTKeyPath &keyPath, uint depth,
         if (keyPath.propagate(name(), depth)) {
             uint newDepth = keyPath.nextDepth(name(), depth);
             for (const auto &layer : mLayers) {
-                layer->resolveKeyPath(keyPath, newDepth, value);
+                if (layer->resolveKeyPath(keyPath, newDepth, value)) {
+                    mDirtyFlag = DirtyFlagBit::All;
+                }
             }
         }
         return true;
@@ -525,6 +535,9 @@ LOTCompLayerItem::LOTCompLayerItem(LOTLayerData *layerModel)
 {
     // 1. create layer item
     for (auto &i : mLayerData->mChildren) {
+        if (i->type() != LOTData::Type::Layer) {
+            continue;
+        }
         LOTLayerData *layerModel = static_cast<LOTLayerData *>(i.get());
         auto          layerItem = LOTCompItem::createLayerItem(layerModel);
         if (layerItem) mLayers.push_back(std::move(layerItem));
@@ -596,7 +609,7 @@ void LOTCompLayerItem::render(VPainter *painter, const VRle &inheritMask,
             VPainter srcPainter;
             VBitmap  srcBitmap(size.width(), size.height(),
                               VBitmap::Format::ARGB32);
-            srcPainter.begin(&srcBitmap);
+            srcPainter.begin(&srcBitmap, true);
             renderHelper(&srcPainter, inheritMask, matteRle);
             srcPainter.end();
             painter->drawBitmap(VPoint(), srcBitmap, combinedAlpha() * 255);
@@ -656,7 +669,7 @@ void LOTCompLayerItem::renderMatteLayer(VPainter *painter, const VRle &mask,
     VPainter srcPainter;
     src->bitmap().reset(size.width(), size.height(),
                         VBitmap::Format::ARGB32);
-    srcPainter.begin(&src->bitmap());
+    srcPainter.begin(&src->bitmap(), true);
     src->render(&srcPainter, mask, matteRle);
     srcPainter.end();
 
@@ -664,7 +677,7 @@ void LOTCompLayerItem::renderMatteLayer(VPainter *painter, const VRle &mask,
     VPainter layerPainter;
     layer->bitmap().reset(size.width(), size.height(),
                           VBitmap::Format::ARGB32);
-    layerPainter.begin(&layer->bitmap());
+    layerPainter.begin(&layer->bitmap(), true);
     layer->render(&layerPainter, mask, matteRle);
 
     // 2.1update composition mode
@@ -758,7 +771,9 @@ void LOTSolidLayerItem::updateContent()
     if (flag() & DirtyFlagBit::Matrix) {
         VPath path;
         path.addRect(
-            VRectF(0, 0, mLayerData->solidWidth(), mLayerData->solidHeight()));
+                VRectF(0, 0,
+                       mLayerData->layerSize().width(),
+                       mLayerData->layerSize().height()));
         path.transform(combinedMatrix());
         mRenderNode.mFlag |= VDrawable::DirtyState::Path;
         mRenderNode.mPath = path;
@@ -798,16 +813,20 @@ void LOTSolidLayerItem::renderList(std::vector<VDrawable *> &list)
 LOTImageLayerItem::LOTImageLayerItem(LOTLayerData *layerData)
     : LOTLayerItem(layerData)
 {
-    VBrush brush(mLayerData->mAsset->bitmap());
+    if (!mLayerData->asset()) return;
+
+    VBrush brush(mLayerData->asset()->bitmap());
     mRenderNode.setBrush(brush);
 }
 
 void LOTImageLayerItem::updateContent()
 {
+    if (!mLayerData->asset()) return;
+
     if (flag() & DirtyFlagBit::Matrix) {
         VPath path;
-        path.addRect(VRectF(0, 0, mLayerData->mAsset->mWidth,
-                            mLayerData->mAsset->mHeight));
+        path.addRect(VRectF(0, 0, mLayerData->asset()->mWidth,
+                            mLayerData->asset()->mHeight));
         path.transform(combinedMatrix());
         mRenderNode.mFlag |= VDrawable::DirtyState::Path;
         mRenderNode.mPath = path;

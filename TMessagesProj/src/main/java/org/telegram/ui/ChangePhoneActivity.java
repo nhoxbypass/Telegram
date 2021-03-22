@@ -72,6 +72,8 @@ import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.EditTextBoldCursor;
 import org.telegram.ui.Components.HintEditText;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.RLottieDrawable;
+import org.telegram.ui.Components.RLottieImageView;
 import org.telegram.ui.Components.SlideView;
 
 import java.io.BufferedReader;
@@ -157,7 +159,7 @@ public class ChangePhoneActivity extends BaseFragment {
         });
 
         ActionBarMenu menu = actionBar.createMenu();
-        doneButton = menu.addItemWithWidth(done_button, R.drawable.ic_done, AndroidUtilities.dp(56));
+        doneButton = menu.addItemWithWidth(done_button, R.drawable.ic_done, AndroidUtilities.dp(56), LocaleController.getString("Done", R.string.Done));
 
         ScrollView scrollView = new ScrollView(context) {
             @Override
@@ -365,13 +367,13 @@ public class ChangePhoneActivity extends BaseFragment {
 
             countryButton = new TextView(context);
             countryButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18);
-            countryButton.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(10), AndroidUtilities.dp(12), 0);
+            countryButton.setPadding(AndroidUtilities.dp(4), AndroidUtilities.dp(4), AndroidUtilities.dp(4), AndroidUtilities.dp(4));
             countryButton.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
             countryButton.setMaxLines(1);
             countryButton.setSingleLine(true);
             countryButton.setEllipsize(TextUtils.TruncateAt.END);
             countryButton.setGravity((LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.CENTER_HORIZONTAL);
-            countryButton.setBackgroundResource(R.drawable.spinner_states);
+            countryButton.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector), 7));
             addView(countryButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 36, 0, 0, 0, 14));
             countryButton.setOnClickListener(view -> {
                 CountrySelectActivity fragment = new CountrySelectActivity(true);
@@ -830,15 +832,16 @@ public class ChangePhoneActivity extends BaseFragment {
         private TextView confirmTextView;
         private TextView titleTextView;
         private ImageView blackImageView;
-        private ImageView blueImageView;
+        private RLottieImageView blueImageView;
         private TextView timeText;
         private TextView problemText;
         private Bundle currentParams;
         private ProgressView progressView;
 
+        RLottieDrawable hintDrawable;
+
         private Timer timeTimer;
         private Timer codeTimer;
-        private int openTime;
         private final Object timerSync = new Object();
         private int time = 60000;
         private int codeTime = 15000;
@@ -899,16 +902,19 @@ public class ChangePhoneActivity extends BaseFragment {
                     blackImageView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText), PorterDuff.Mode.MULTIPLY));
                     frameLayout.addView(blackImageView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, 0, 0, 0));
 
-                    blueImageView = new ImageView(context);
+                    blueImageView = new RLottieImageView(context);
                     blueImageView.setImageResource(R.drawable.sms_bubble);
                     blueImageView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_chats_actionBackground), PorterDuff.Mode.MULTIPLY));
                     frameLayout.addView(blueImageView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, 0, 0, 0));
 
                     titleTextView.setText(LocaleController.getString("SentAppCodeTitle", R.string.SentAppCodeTitle));
                 } else {
-                    blueImageView = new ImageView(context);
-                    blueImageView.setImageResource(R.drawable.sms_code);
-                    blueImageView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_chats_actionBackground), PorterDuff.Mode.MULTIPLY));
+                    blueImageView = new RLottieImageView(context);
+                    hintDrawable = new RLottieDrawable(R.raw.sms_incoming_info, "" + R.raw.sms_incoming_info, AndroidUtilities.dp(64), AndroidUtilities.dp(64), true, null);
+                    hintDrawable.setLayerColor("Bubble.**", Theme.getColor(Theme.key_chats_actionBackground));
+                    hintDrawable.setLayerColor("Phone.**", Theme.getColor(Theme.key_chats_actionBackground));
+                    blueImageView.setAnimation(hintDrawable);
+
                     frameLayout.addView(blueImageView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 0, 0, 0, 0));
 
                     titleTextView.setText(LocaleController.getString("SentSmsCodeTitle", R.string.SentSmsCodeTitle));
@@ -1100,7 +1106,6 @@ public class ChangePhoneActivity extends BaseFragment {
             requestPhone = params.getString("phoneFormated");
             phoneHash = params.getString("phoneHash");
             timeout = time = params.getInt("timeout");
-            openTime = (int) (System.currentTimeMillis() / 1000);
             nextType = params.getInt("nextType");
             pattern = params.getString("pattern");
             length = params.getInt("length");
@@ -1311,58 +1316,55 @@ public class ChangePhoneActivity extends BaseFragment {
                     if (timeTimer == null) {
                         return;
                     }
-                    AndroidUtilities.runOnUIThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            final double currentTime = System.currentTimeMillis();
-                            double diff = currentTime - lastCurrentTime;
-                            time -= diff;
-                            lastCurrentTime = currentTime;
-                            if (time >= 1000) {
-                                int minutes = time / 1000 / 60;
-                                int seconds = time / 1000 - minutes * 60;
-                                if (nextType == 4 || nextType == 3) {
-                                    timeText.setText(LocaleController.formatString("CallText", R.string.CallText, minutes, seconds));
-                                } else if (nextType == 2) {
-                                    timeText.setText(LocaleController.formatString("SmsText", R.string.SmsText, minutes, seconds));
-                                }
-                                if (progressView != null) {
-                                    progressView.setProgress(1.0f - (float) time / (float) timeout);
-                                }
-                            } else {
-                                if (progressView != null) {
-                                    progressView.setProgress(1.0f);
-                                }
-                                destroyTimer();
-                                if (currentType == 3) {
-                                    AndroidUtilities.setWaitingForCall(false);
-                                    NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.didReceiveCall);
+                    AndroidUtilities.runOnUIThread(() -> {
+                        final double currentTime = System.currentTimeMillis();
+                        double diff = currentTime - lastCurrentTime;
+                        time -= diff;
+                        lastCurrentTime = currentTime;
+                        if (time >= 1000) {
+                            int minutes = time / 1000 / 60;
+                            int seconds = time / 1000 - minutes * 60;
+                            if (nextType == 4 || nextType == 3) {
+                                timeText.setText(LocaleController.formatString("CallText", R.string.CallText, minutes, seconds));
+                            } else if (nextType == 2) {
+                                timeText.setText(LocaleController.formatString("SmsText", R.string.SmsText, minutes, seconds));
+                            }
+                            if (progressView != null) {
+                                progressView.setProgress(1.0f - (float) time / (float) timeout);
+                            }
+                        } else {
+                            if (progressView != null) {
+                                progressView.setProgress(1.0f);
+                            }
+                            destroyTimer();
+                            if (currentType == 3) {
+                                AndroidUtilities.setWaitingForCall(false);
+                                NotificationCenter.getGlobalInstance().removeObserver(LoginActivitySmsView.this, NotificationCenter.didReceiveCall);
+                                waitingForEvent = false;
+                                destroyCodeTimer();
+                                resendCode();
+                            } else if (currentType == 2 || currentType == 4) {
+                                if (nextType == 4 || nextType == 2) {
+                                    if (nextType == 4) {
+                                        timeText.setText(LocaleController.getString("Calling", R.string.Calling));
+                                    } else {
+                                        timeText.setText(LocaleController.getString("SendingSms", R.string.SendingSms));
+                                    }
+                                    createCodeTimer();
+                                    TLRPC.TL_auth_resendCode req = new TLRPC.TL_auth_resendCode();
+                                    req.phone_number = requestPhone;
+                                    req.phone_code_hash = phoneHash;
+                                    ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
+                                        if (error != null && error.text != null) {
+                                            AndroidUtilities.runOnUIThread(() -> lastError = error.text);
+                                        }
+                                    }, ConnectionsManager.RequestFlagFailOnServerErrors);
+                                } else if (nextType == 3) {
+                                    AndroidUtilities.setWaitingForSms(false);
+                                    NotificationCenter.getGlobalInstance().removeObserver(LoginActivitySmsView.this, NotificationCenter.didReceiveSmsCode);
                                     waitingForEvent = false;
                                     destroyCodeTimer();
                                     resendCode();
-                                } else if (currentType == 2 || currentType == 4) {
-                                    if (nextType == 4 || nextType == 2) {
-                                        if (nextType == 4) {
-                                            timeText.setText(LocaleController.getString("Calling", R.string.Calling));
-                                        } else {
-                                            timeText.setText(LocaleController.getString("SendingSms", R.string.SendingSms));
-                                        }
-                                        createCodeTimer();
-                                        TLRPC.TL_auth_resendCode req = new TLRPC.TL_auth_resendCode();
-                                        req.phone_number = requestPhone;
-                                        req.phone_code_hash = phoneHash;
-                                        ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
-                                            if (error != null && error.text != null) {
-                                                AndroidUtilities.runOnUIThread(() -> lastError = error.text);
-                                            }
-                                        }, ConnectionsManager.RequestFlagFailOnServerErrors);
-                                    } else if (nextType == 3) {
-                                        AndroidUtilities.setWaitingForSms(false);
-                                        NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.didReceiveSmsCode);
-                                        waitingForEvent = false;
-                                        destroyCodeTimer();
-                                        resendCode();
-                                    }
                                 }
                             }
                         }
@@ -1520,6 +1522,9 @@ public class ChangePhoneActivity extends BaseFragment {
             if (currentType == 3) {
                 return;
             }
+            if (hintDrawable != null) {
+                hintDrawable.setCurrentFrame(0);
+            }
             AndroidUtilities.runOnUIThread(() -> {
                 if (codeField != null) {
                     for (int a = codeField.length - 1; a >= 0; a--) {
@@ -1530,6 +1535,9 @@ public class ChangePhoneActivity extends BaseFragment {
                             break;
                         }
                     }
+                }
+                if (hintDrawable != null) {
+                    hintDrawable.start();
                 }
             }, 100);
         }
@@ -1556,7 +1564,7 @@ public class ChangePhoneActivity extends BaseFragment {
     }
 
     @Override
-    public ThemeDescription[] getThemeDescriptions() {
+    public ArrayList<ThemeDescription> getThemeDescriptions() {
         PhoneView phoneView = (PhoneView) views[0];
         LoginActivitySmsView smsView1 = (LoginActivitySmsView) views[1];
         LoginActivitySmsView smsView2 = (LoginActivitySmsView) views[2];
@@ -1564,6 +1572,18 @@ public class ChangePhoneActivity extends BaseFragment {
         LoginActivitySmsView smsView4 = (LoginActivitySmsView) views[4];
 
         ArrayList<ThemeDescription> arrayList = new ArrayList<>();
+
+        ThemeDescription.ThemeDescriptionDelegate descriptionDelegate = () -> {
+            for (int i = 0; i < views.length; i++) {
+                if (views[i] instanceof LoginActivity.LoginActivitySmsView) {
+                    LoginActivity.LoginActivitySmsView smsView = (LoginActivity.LoginActivitySmsView) views[i];
+                    if (smsView.hintDrawable != null) {
+                        smsView.hintDrawable.setLayerColor("Bubble.**", Theme.getColor(Theme.key_chats_actionBackground));
+                        smsView.hintDrawable.setLayerColor("Phone.**", Theme.getColor(Theme.key_chats_actionBackground));
+                    }
+                }
+            }
+        };
 
         arrayList.add(new ThemeDescription(fragmentView, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundWhite));
 
@@ -1574,6 +1594,7 @@ public class ChangePhoneActivity extends BaseFragment {
         arrayList.add(new ThemeDescription(actionBar, ThemeDescription.FLAG_AB_SELECTORCOLOR, null, null, null, null, Theme.key_actionBarDefaultSelector));
 
         arrayList.add(new ThemeDescription(phoneView.countryButton, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
+        arrayList.add(new ThemeDescription(phoneView.countryButton, ThemeDescription.FLAG_BACKGROUNDFILTER | ThemeDescription.FLAG_DRAWABLESELECTEDSTATE, null, null, null, null, Theme.key_listSelector));
         arrayList.add(new ThemeDescription(phoneView.view, ThemeDescription.FLAG_BACKGROUND, null, null, null, null, Theme.key_windowBackgroundWhiteGrayLine));
         arrayList.add(new ThemeDescription(phoneView.textView, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
         arrayList.add(new ThemeDescription(phoneView.codeField, ThemeDescription.FLAG_TEXTCOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
@@ -1644,7 +1665,8 @@ public class ChangePhoneActivity extends BaseFragment {
         arrayList.add(new ThemeDescription(smsView4.progressView, 0, new Class[]{ProgressView.class}, new String[]{"paint"}, null, null, null, Theme.key_login_progressOuter));
         arrayList.add(new ThemeDescription(smsView4.blackImageView, ThemeDescription.FLAG_IMAGECOLOR, null, null, null, null, Theme.key_windowBackgroundWhiteBlackText));
         arrayList.add(new ThemeDescription(smsView4.blueImageView, ThemeDescription.FLAG_IMAGECOLOR, null, null, null, null, Theme.key_chats_actionBackground));
+        arrayList.add(new ThemeDescription(smsView4.blueImageView, 0, null, null, null, descriptionDelegate, Theme.key_chats_actionBackground));
 
-        return arrayList.toArray(new ThemeDescription[0]);
+        return arrayList;
     }
 }
